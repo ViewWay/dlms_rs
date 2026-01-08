@@ -1,0 +1,21 @@
+[package]
+name = "dlms-client"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "DLMS/COSEM client implementation"
+
+[lib]
+name = "dlms_client"
+path = "src/lib.rs"
+
+[dependencies]
+tokio = { workspace = true }
+dlms-core = { path = "../dlms-core" }
+dlms-transport = { path = "../dlms-transport" }
+dlms-session = { path = "../dlms-session" }
+dlms-security = { path = "../dlms-security" }
+dlms-application = { path = "../dlms-application" }
+anyhow = { workspace = true }

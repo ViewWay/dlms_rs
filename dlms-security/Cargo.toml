@@ -1,0 +1,20 @@
+[package]
+name = "dlms-security"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Security layer for DLMS/COSEM (encryption, authentication)"
+
+[lib]
+name = "dlms_security"
+path = "src/lib.rs"
+
+[dependencies]
+ring = { workspace = true }
+aes-gcm = { workspace = true }
+hmac = { workspace = true }
+sha2 = { workspace = true }
+dlms-core = { path = "../dlms-core" }
+bytes = { workspace = true }

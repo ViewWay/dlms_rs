@@ -1,0 +1,39 @@
+# Rust
+/target
+**/*.rs.bk
+*.pdb
+Cargo.lock
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+*.o
+*.so
+*.dylib
+*.dll
+
+# Test artifacts
+*.profraw
+
+# Generated code
+src/asn1/cosem/generated/
+src/asn1/iso_acse/generated/
+
+src/*
+
+.tasks/
+.bitbucket/
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local

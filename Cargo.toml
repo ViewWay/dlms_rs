@@ -1,0 +1,51 @@
+[workspace]
+members = [
+    "dlms-core",
+    "dlms-asn1",
+    "dlms-transport",
+    "dlms-session",
+    "dlms-security",
+    "dlms-application",
+    "dlms-interface",
+    "dlms-client",
+    "dlms-server",
+    "dlms",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["yimiliya"]
+license = "GPL-3.0"
+repository = "https://github.com/viewway/dlms_rs"
+
+[workspace.dependencies]
+# 异步运行时
+tokio = { version = "1.49.0", features = ["full"] }
+tokio-serial = { version = "5.4.5", features = ["libudev"] }
+
+# ASN.1 处理
+rasn = { version = "0.28.2", features = ["derive"] }
+
+# 加密和安全
+ring = "0.17.14"
+aes-gcm = "0.10.3"
+hmac = "0.12.1"
+sha2 = "0.10.9"
+
+# 序列化
+serde = { version = "1.0.228", features = ["derive"] }
+serde_bytes = "0.11.19"
+
+# 错误处理
+thiserror = "2.0.17"
+anyhow = "1.0.100"
+
+# 工具库
+bytes = "1.11.0"
+log = "0.4.29"
+regex = "1.12.2"
+
+[workspace.dev-dependencies]
+tokio-test = "0.4.5"
+mockall = "0.14.0"

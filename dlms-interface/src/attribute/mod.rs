@@ -1,0 +1,1 @@
+//! COSEM interface class attributes

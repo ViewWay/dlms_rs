@@ -1,0 +1,17 @@
+[package]
+name = "dlms-session"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Session layer for DLMS/COSEM (HDLC, Wrapper)"
+
+[lib]
+name = "dlms_session"
+path = "src/lib.rs"
+
+[dependencies]
+dlms-core = { path = "../dlms-core" }
+dlms-transport = { path = "../dlms-transport" }
+bytes = { workspace = true }

@@ -1,0 +1,14 @@
+[package]
+name = "dlms-core"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Core types and utilities for DLMS/COSEM protocol"
+
+[dependencies]
+serde = { workspace = true }
+serde_bytes = { workspace = true }
+thiserror = { workspace = true }
+regex = { workspace = true }

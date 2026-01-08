@@ -1,0 +1,16 @@
+[package]
+name = "dlms-interface"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "COSEM interface classes for DLMS"
+
+[lib]
+name = "dlms_interface"
+path = "src/lib.rs"
+
+[dependencies]
+dlms-core = { path = "../dlms-core" }
+dlms-application = { path = "../dlms-application" }

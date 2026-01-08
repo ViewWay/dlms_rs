@@ -1,0 +1,23 @@
+[package]
+name = "dlms"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Rust implementation of DLMS/COSEM protocol - Main entry point"
+
+[lib]
+name = "dlms"
+path = "src/lib.rs"
+
+[dependencies]
+dlms-core = { path = "../dlms-core" }
+dlms-asn1 = { path = "../dlms-asn1" }
+dlms-transport = { path = "../dlms-transport" }
+dlms-session = { path = "../dlms-session" }
+dlms-security = { path = "../dlms-security" }
+dlms-application = { path = "../dlms-application" }
+dlms-interface = { path = "../dlms-interface" }
+dlms-client = { path = "../dlms-client" }
+dlms-server = { path = "../dlms-server" }

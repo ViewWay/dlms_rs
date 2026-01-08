@@ -1,0 +1,12 @@
+[package]
+name = "dlms-asn1"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "ASN.1 encoding/decoding for DLMS/COSEM protocol"
+
+[dependencies]
+dlms-core = { path = "../dlms-core" }
+rasn = { workspace = true }

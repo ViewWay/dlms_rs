@@ -1,0 +1,18 @@
+[package]
+name = "dlms-transport"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Transport layer for DLMS/COSEM (TCP, UDP, Serial)"
+
+[lib]
+name = "dlms_transport"
+path = "src/lib.rs"
+
+[dependencies]
+tokio = { workspace = true }
+tokio-serial = { workspace = true }
+dlms-core = { path = "../dlms-core" }
+bytes = { workspace = true }
