@@ -1,4 +1,4 @@
-# jDLMS Rust
+# DLMS Rust
 
 Rust implementation of DLMS/COSEM protocol for smart meter communication.
 
