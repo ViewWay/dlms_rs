@@ -17,6 +17,26 @@
 //! - `dlms-client`: Client implementation
 //! - `dlms-server`: Server implementation
 //!
+//! # Implementation Status
+//!
+//! ## ✅ 已完成
+//! - 核心数据类型（DataObject, BitString, CosemDate/Time/DateTime, CompactArray）
+//! - A-XDR 编码/解码
+//! - 传输层（TCP, UDP, Serial）
+//! - HDLC 会话层（地址、帧、FCS、连接）
+//! - Wrapper 会话层
+//! - 安全层（加密、认证、密钥管理）
+//!
+//! ## 🚧 进行中
+//! - 应用层（PDU、服务）
+//! - 客户端连接管理
+//!
+//! ## 📋 待实现
+//! - ISO-ACSE 层
+//! - COSEM ASN.1 结构
+//! - 接口类实现
+//! - 服务器实现
+//!
 //! # Usage
 //!
 //! ```no_run

@@ -1,3 +1,23 @@
 //! Connection trait and implementations for DLMS/COSEM client
-
-// Placeholder - to be implemented
+//!
+//! # TODO
+//!
+//! ## 连接 Trait
+//! - [ ] Connection trait 定义
+//! - [ ] 连接状态管理
+//! - [ ] 连接生命周期管理
+//!
+//! ## 连接实现
+//! - [ ] 连接建立流程
+//! - [ ] 连接关闭流程
+//! - [ ] 连接错误处理
+//! - [ ] 连接超时处理
+//! - [ ] 连接重试机制
+//!
+//! ## 数据操作
+//! - [ ] GET 操作接口
+//! - [ ] SET 操作接口
+//! - [ ] ACTION 操作接口
+//! - [ ] 对象浏览接口
+//! - [ ] 数据读取接口
+//! - [ ] 数据写入接口

@@ -1,3 +1,11 @@
 //! COSEM interface class methods
-
-// Placeholder - to be implemented
+//!
+//! # TODO
+//!
+//! - [ ] 方法调用 Trait 定义
+//! - [ ] 方法参数类型定义
+//! - [ ] 方法返回值类型定义
+//! - [ ] 方法参数验证
+//! - [ ] 方法调用实现
+//! - [ ] 方法返回值处理
+//! - [ ] 方法错误处理

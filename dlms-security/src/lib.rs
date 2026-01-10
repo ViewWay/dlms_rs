@@ -1,6 +1,38 @@
 //! Security module for DLMS/COSEM protocol
 //!
 //! This crate provides security functionality including encryption and authentication.
+//!
+//! # TODO
+//!
+//! ## 加密功能
+//! - [x] AES-GCM 加密/解密
+//! - [x] Security Control 字节处理
+//! - [ ] 密钥派生函数（KDF）
+//! - [ ] 系统标题（System Title）管理
+//! - [ ] 帧计数器（Frame Counter）管理
+//! - [ ] 加密帧构建和解析
+//!
+//! ## 认证功能
+//! - [x] GMAC 认证
+//! - [x] Low-level 认证（密码）
+//! - [x] HLS5-GMAC 认证
+//! - [ ] 认证挑战-响应流程
+//! - [ ] 密钥协商机制
+//! - [ ] 认证状态管理
+//!
+//! ## 密钥管理
+//! - [x] AES 密钥生成
+//! - [x] RFC 3394 密钥包装/解包
+//! - [ ] 密钥存储和管理
+//! - [ ] 密钥更新机制
+//! - [ ] 主密钥（KEK）管理
+//! - [ ] 密钥导出和导入
+//!
+//! ## 安全套件
+//! - [x] Security Suite 配置
+//! - [x] Security Policy 管理
+//! - [ ] 安全套件协商
+//! - [ ] 安全参数验证
 
 pub mod error;
 pub mod suite;
