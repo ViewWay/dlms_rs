@@ -315,9 +315,20 @@ impl HdlcFrame {
             result.extend_from_slice(&info_fcs_bytes);
         }
 
-        // Update frame format with actual length (11-bit length field spans both bytes)
+        // Calculate header length (frame format + addresses + control + FCS)
+        // HDLC frame format length field does NOT include the information field
+        // The length field represents only the header frame size
+        let dest_len = self.address_pair.destination().byte_length();
+        let src_len = self.address_pair.source().byte_length();
+        let header_length = 2 // Frame format
+            + dest_len
+            + src_len
+            + 1 // Control field
+            + 2; // FCS
+        
+        // Update frame format with actual header length (11-bit length field spans both bytes)
         // HDLC frame format: byte 0 bits 2-0 contain length bits 10-8, byte 1 contains length bits 7-0
-        let length = result.len() as u16;
+        let length = header_length as u16;
         
         // Extract high 3 bits of length (bits 10-8) and put them in byte 0 bits 2-0
         let length_high = ((length >> 8) & 0x07) as u8;
@@ -333,8 +344,6 @@ impl HdlcFrame {
         fcs_recalc.update(result[1]); // Updated frame format byte 1
         
         // Calculate positions
-        let dest_len = self.address_pair.destination().byte_length();
-        let src_len = self.address_pair.source().byte_length();
         let addr_start = 2; // After frame format
         let control_pos = addr_start + dest_len + src_len;
         let fcs_pos = control_pos + 1;
