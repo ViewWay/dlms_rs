@@ -315,9 +315,42 @@ impl HdlcFrame {
             result.extend_from_slice(&info_fcs_bytes);
         }
 
-        // Update frame format L with actual length
+        // Update frame format with actual length (11-bit length field spans both bytes)
+        // HDLC frame format: byte 0 bits 2-0 contain length bits 10-8, byte 1 contains length bits 7-0
         let length = result.len() as u16;
+        
+        // Extract high 3 bits of length (bits 10-8) and put them in byte 0 bits 2-0
+        let length_high = ((length >> 8) & 0x07) as u8;
+        result[0] = result[0] | length_high;
+        
+        // Put low 8 bits of length (bits 7-0) in byte 1
         result[1] = (length & 0xFF) as u8;
+        
+        // Recalculate FCS since we updated the frame format bytes
+        // FCS includes: frame format (2 bytes) + addresses + control field
+        let mut fcs_recalc = FcsCalc::new();
+        fcs_recalc.update(result[0]); // Updated frame format byte 0
+        fcs_recalc.update(result[1]); // Updated frame format byte 1
+        
+        // Calculate positions
+        let dest_len = self.address_pair.destination().byte_length();
+        let src_len = self.address_pair.source().byte_length();
+        let addr_start = 2; // After frame format
+        let control_pos = addr_start + dest_len + src_len;
+        let fcs_pos = control_pos + 1;
+        
+        // Update FCS with addresses and control field
+        for i in addr_start..control_pos {
+            fcs_recalc.update(result[i]);
+        }
+        fcs_recalc.update(result[control_pos]);
+        
+        // Replace old FCS with new FCS
+        let new_fcs = fcs_recalc.fcs_value_bytes();
+        result[fcs_pos] = new_fcs[0];
+        result[fcs_pos + 1] = new_fcs[1];
+        
+        // Note: Information field FCS doesn't need recalculation as it's independent
 
         Ok(result)
     }
