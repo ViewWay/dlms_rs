@@ -29,8 +29,7 @@
 
 // Re-export core types
 pub use dlms_core::{DlmsError, DlmsResult, ObisCode};
-// Re-export datatypes when implemented
-// pub use dlms_core::datatypes::*;
+pub use dlms_core::datatypes::*;
 
 // Re-export client API
 pub mod client {

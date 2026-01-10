@@ -16,3 +16,4 @@ tokio = { workspace = true }
 tokio-serial = { workspace = true }
 dlms-core = { path = "../dlms-core" }
 bytes = { workspace = true }
+async-trait = "0.1"

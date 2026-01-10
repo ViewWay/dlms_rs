@@ -9,5 +9,4 @@ pub mod datatypes;
 
 pub use error::{DlmsError, DlmsResult};
 pub use obis_code::ObisCode;
-// Re-export datatypes when implemented
-// pub use datatypes::*;
+pub use datatypes::*;
