@@ -27,42 +27,22 @@
 //! - **Human Readable**: OBIS codes follow a standard format (A.B.C.D.E.F)
 //! - **Globally Unique**: OBIS codes are standardized across all DLMS devices
 //! - **Flexible**: Can address any object regardless of device configuration
-//!
-//! # Usage Example
-//!
-//! ```rust,no_run
-//! use dlms_client::connection::{Connection, LnConnection, LnConnectionConfig};
-//! use dlms_core::ObisCode;
-//!
-//! // Create connection
-//! let config = LnConnectionConfig::default();
-//! let mut conn = LnConnection::new(config);
-//!
-//! // Open connection
-//! conn.open().await?;
-//!
-//! // Read attribute
-//! let obis = ObisCode::new(1, 1, 1, 8, 0, 255);
-//! let value = conn.get_attribute(obis, 1, 2).await?;
-//!
-//! // Close connection
-//! conn.close().await?;
-//! ```
 
 use super::connection::{Connection, ConnectionState};
 use dlms_application::service::{GetService, SetService, ActionService};
 use dlms_application::pdu::{
     InitiateRequest, InitiateResponse, GetRequest, GetResponse, SetRequest, SetResponse,
     ActionRequest, ActionResponse, CosemAttributeDescriptor, CosemMethodDescriptor,
-    InvokeIdAndPriority, Conformance,
+    InvokeIdAndPriority, Conformance, DLMS_VERSION_6,
 };
 use dlms_application::addressing::LogicalNameReference;
 use dlms_core::{DlmsError, DlmsResult, ObisCode, DataObject};
 use dlms_session::hdlc::{HdlcConnection, HdlcAddress};
 use dlms_session::wrapper::WrapperSession;
-use dlms_transport::{TcpTransport, SerialTransport, TransportLayer, StreamAccessor};
+use dlms_transport::{TcpTransport, SerialTransport, TcpSettings, SerialSettings, TransportLayer};
 use dlms_security::SecuritySuite;
 use std::time::Duration;
+use std::net::SocketAddr;
 
 /// Session layer type
 ///
@@ -70,10 +50,21 @@ use std::time::Duration;
 /// connection establishment procedures and data framing.
 #[derive(Debug)]
 enum SessionLayer {
-    /// HDLC session (for Serial transport)
-    Hdlc(Box<dyn std::any::Any + Send + Sync>),
-    /// Wrapper session (for TCP/UDP transport)
-    Wrapper(Box<dyn std::any::Any + Send + Sync>),
+    /// HDLC session with TCP transport
+    HdlcTcp(HdlcConnection<TcpTransport>),
+    /// HDLC session with Serial transport
+    HdlcSerial(HdlcConnection<SerialTransport>),
+    /// Wrapper session with TCP transport
+    WrapperTcp(WrapperSession<TcpTransport>),
+    /// Wrapper session with Serial transport (rare, but possible)
+    WrapperSerial(WrapperSession<SerialTransport>),
+}
+
+/// Transport configuration
+#[derive(Debug, Clone)]
+pub(crate) enum TransportConfig {
+    Tcp { address: String },
+    Serial { port_name: String, baud_rate: u32 },
 }
 
 /// Logical Name (LN) connection configuration
@@ -82,6 +73,8 @@ enum SessionLayer {
 /// transport settings, session parameters, and security configuration.
 #[derive(Debug, Clone)]
 pub struct LnConnectionConfig {
+    /// Transport configuration
+    pub transport: Option<TransportConfig>,
     /// Local HDLC address (for HDLC sessions, required if using HDLC)
     pub local_address: Option<HdlcAddress>,
     /// Remote HDLC address (for HDLC sessions, required if using HDLC)
@@ -103,6 +96,7 @@ pub struct LnConnectionConfig {
 impl Default for LnConnectionConfig {
     fn default() -> Self {
         Self {
+            transport: None,
             local_address: None,
             remote_address: None,
             client_id: Some(0x10),
@@ -119,30 +113,6 @@ impl Default for LnConnectionConfig {
 ///
 /// Provides a high-level interface for DLMS/COSEM operations using
 /// logical name addressing (OBIS codes).
-///
-/// # Connection State Management
-///
-/// The connection maintains state to ensure operations are only performed
-/// when the connection is ready. State transitions:
-/// - `Closed` -> `TransportOpen` (transport.open())
-/// - `TransportOpen` -> `SessionOpen` (session.open() or HDLC SNRM/UA)
-/// - `SessionOpen` -> `Ready` (InitiateRequest/Response)
-/// - Any state -> `Closed` (close())
-///
-/// # Error Handling
-///
-/// All operations return `DlmsResult` to handle errors from all layers:
-/// - Transport errors: network issues, timeouts
-/// - Session errors: frame errors, protocol violations
-/// - Application errors: PDU errors, access denied
-/// - Security errors: authentication failures, encryption errors
-///
-/// # Optimization Considerations
-///
-/// - Services are created once and reused for all operations
-/// - Invoke IDs are managed automatically by services
-/// - PDU encoding/decoding happens on-demand
-/// - Future optimization: Connection pooling, request queuing, PDU caching
 pub struct LnConnection {
     /// Connection state
     state: ConnectionState,
@@ -164,12 +134,6 @@ pub struct LnConnection {
 
 impl LnConnection {
     /// Create a new LN connection with configuration
-    ///
-    /// # Arguments
-    /// * `config` - Connection configuration
-    ///
-    /// # Returns
-    /// A new LN connection in `Closed` state
     pub fn new(config: LnConnectionConfig) -> Self {
         Self {
             state: ConnectionState::Closed,
@@ -184,32 +148,19 @@ impl LnConnection {
     }
 
     /// Send data through the session layer
-    ///
-    /// # Arguments
-    /// * `data` - Data to send
-    ///
-    /// # Returns
-    /// Ok(()) if successful
-    ///
-    /// # Errors
-    /// Returns error if session is not established or sending fails
     async fn send_session_data(&mut self, data: &[u8]) -> DlmsResult<()> {
         match &mut self.session {
-            Some(SessionLayer::Hdlc(_)) => {
-                // TODO: Implement HDLC sending
-                // For now, return error as HDLC connection needs proper type handling
-                Err(DlmsError::InvalidData(
-                    "HDLC session sending not yet fully implemented".to_string(),
-                ))
+            Some(SessionLayer::HdlcTcp(hdlc)) => {
+                hdlc.send_information(data.to_vec(), false).await
             }
-            Some(SessionLayer::Wrapper(wrapper)) => {
-                // Cast to WrapperSession<TcpTransport> or WrapperSession<SerialTransport>
-                // This is a limitation of the current design - we need to use generics or
-                // a trait object approach
-                // TODO: Refactor to use proper trait-based session layer
-                Err(DlmsError::InvalidData(
-                    "Wrapper session sending needs proper type handling".to_string(),
-                ))
+            Some(SessionLayer::HdlcSerial(hdlc)) => {
+                hdlc.send_information(data.to_vec(), false).await
+            }
+            Some(SessionLayer::WrapperTcp(wrapper)) => {
+                wrapper.send(data).await
+            }
+            Some(SessionLayer::WrapperSerial(wrapper)) => {
+                wrapper.send(data).await
             }
             None => Err(DlmsError::Connection(std::io::Error::new(
                 std::io::ErrorKind::NotConnected,
@@ -219,31 +170,22 @@ impl LnConnection {
     }
 
     /// Receive data from the session layer
-    ///
-    /// # Arguments
-    /// * `timeout` - Optional timeout for receiving
-    ///
-    /// # Returns
-    /// Received data
-    ///
-    /// # Errors
-    /// Returns error if session is not established or receiving fails
     async fn receive_session_data(
         &mut self,
         timeout: Option<Duration>,
     ) -> DlmsResult<Vec<u8>> {
         match &mut self.session {
-            Some(SessionLayer::Hdlc(_)) => {
-                // TODO: Implement HDLC receiving
-                Err(DlmsError::InvalidData(
-                    "HDLC session receiving not yet fully implemented".to_string(),
-                ))
+            Some(SessionLayer::HdlcTcp(hdlc)) => {
+                hdlc.receive_segmented(timeout).await
             }
-            Some(SessionLayer::Wrapper(_)) => {
-                // TODO: Implement Wrapper receiving
-                Err(DlmsError::InvalidData(
-                    "Wrapper session receiving needs proper type handling".to_string(),
-                ))
+            Some(SessionLayer::HdlcSerial(hdlc)) => {
+                hdlc.receive_segmented(timeout).await
+            }
+            Some(SessionLayer::WrapperTcp(wrapper)) => {
+                wrapper.receive(timeout).await
+            }
+            Some(SessionLayer::WrapperSerial(wrapper)) => {
+                wrapper.receive(timeout).await
             }
             None => Err(DlmsError::Connection(std::io::Error::new(
                 std::io::ErrorKind::NotConnected,
@@ -263,29 +205,113 @@ impl Connection for LnConnection {
             )));
         }
 
-        // TODO: Implement full connection opening
-        // 1. Determine session type (HDLC vs Wrapper) based on config
-        // 2. Create and open transport layer
-        // 3. Create and open session layer
-        // 4. Send InitiateRequest
-        // 5. Receive InitiateResponse
-        // 6. Update state to Ready
+        // Step 1: Determine session type and create transport
+        // The transport configuration must be set by ConnectionBuilder::build_ln().
+        // If it's None, it means the builder didn't properly transfer the transport type.
+        let transport_config = self.config.transport.as_ref().ok_or_else(|| {
+            DlmsError::InvalidData(
+                "Transport configuration is required. This should be set by ConnectionBuilder::build_ln().".to_string()
+            )
+        })?;
 
-        // For now, return error indicating implementation needed
-        Err(DlmsError::InvalidData(
-            "LnConnection::open() full implementation in progress".to_string(),
-        ))
+        // Step 2: Create and open transport layer, then create session layer
+        let session = match transport_config {
+            TransportConfig::Tcp { address } => {
+                // Parse TCP address
+                let addr: SocketAddr = address.parse().map_err(|e| {
+                    DlmsError::InvalidData(format!("Invalid TCP address '{}': {}", address, e))
+                })?;
+                let tcp_settings = TcpSettings::new(addr);
+                let tcp_transport = TcpTransport::new(tcp_settings);
+                
+                // Determine session type based on config
+                if self.config.local_address.is_some() && self.config.remote_address.is_some() {
+                    // Use HDLC over TCP
+                    let local_addr = self.config.local_address.unwrap();
+                    let remote_addr = self.config.remote_address.unwrap();
+                    let mut hdlc = HdlcConnection::new(tcp_transport, local_addr, remote_addr);
+                    hdlc.open().await?;
+                    SessionLayer::HdlcTcp(hdlc)
+                } else {
+                    // Use Wrapper over TCP
+                    let client_id = self.config.client_id.unwrap_or(0x10);
+                    let logical_device_id = self.config.logical_device_id.unwrap_or(0x01);
+                    let mut wrapper = WrapperSession::new(tcp_transport, client_id, logical_device_id);
+                    wrapper.open().await?;
+                    SessionLayer::WrapperTcp(wrapper)
+                }
+            }
+            TransportConfig::Serial { port_name, baud_rate } => {
+                // Create Serial transport
+                let serial_settings = SerialSettings::new(port_name.clone(), *baud_rate);
+                let serial_transport = SerialTransport::new(serial_settings);
+                
+                // Serial typically uses HDLC
+                let local_addr = self.config.local_address.ok_or_else(|| {
+                    DlmsError::InvalidData("HDLC local address is required for Serial transport".to_string())
+                })?;
+                let remote_addr = self.config.remote_address.ok_or_else(|| {
+                    DlmsError::InvalidData("HDLC remote address is required for Serial transport".to_string())
+                })?;
+                
+                let mut hdlc = HdlcConnection::new(serial_transport, local_addr, remote_addr);
+                hdlc.open().await?;
+                SessionLayer::HdlcSerial(hdlc)
+            }
+        };
+
+        self.session = Some(session);
+        self.state = ConnectionState::SessionOpen;
+
+        // Step 3: Send InitiateRequest
+        let initiate_request = InitiateRequest {
+            proposed_dlms_version_number: self.config.dlms_version,
+            proposed_conformance: self.config.conformance.clone(),
+            client_max_receive_pdu_size: self.config.max_pdu_size,
+            proposed_quality_of_service: None,
+            response_allowed: true,
+            dedicated_key: None,
+        };
+
+        let request_bytes = initiate_request.encode()?;
+        self.send_session_data(&request_bytes).await?;
+
+        // Step 4: Receive InitiateResponse
+        let response_bytes = self.receive_session_data(Some(Duration::from_secs(30))).await?;
+        let initiate_response = InitiateResponse::decode(&response_bytes)?;
+
+        // Step 5: Update negotiated parameters
+        self.negotiated_conformance = Some(initiate_response.negotiated_conformance.clone());
+        self.server_max_pdu_size = Some(initiate_response.server_max_receive_pdu_size);
+
+        // Step 6: Update state to Ready
+        self.state = ConnectionState::Ready;
+
+        Ok(())
     }
 
     async fn close(&mut self) -> DlmsResult<()> {
-        // TODO: Implement full connection closing
-        // 1. Send Release Request (if needed)
-        // 2. Close session layer (DISC/DM/UA for HDLC)
-        // 3. Close transport layer
-        // 4. Update state to Closed
+        // Close session layer
+        match &mut self.session {
+            Some(SessionLayer::HdlcTcp(hdlc)) => {
+                hdlc.close().await?;
+            }
+            Some(SessionLayer::HdlcSerial(hdlc)) => {
+                hdlc.close().await?;
+            }
+            Some(SessionLayer::WrapperTcp(wrapper)) => {
+                wrapper.close().await?;
+            }
+            Some(SessionLayer::WrapperSerial(wrapper)) => {
+                wrapper.close().await?;
+            }
+            None => {
+                // Already closed
+            }
+        }
 
-        self.state = ConnectionState::Closed;
         self.session = None;
+        self.state = ConnectionState::Closed;
         Ok(())
     }
 
@@ -307,11 +333,8 @@ impl Connection for LnConnection {
         }
 
         // Create attribute descriptor with LN addressing
-        let attribute_descriptor = CosemAttributeDescriptor {
-            class_id,
-            instance_id: LogicalNameReference::new(obis_code),
-            attribute_id,
-        };
+        let ln_ref = LogicalNameReference::new(class_id, obis_code, attribute_id)?;
+        let attribute_descriptor = CosemAttributeDescriptor::LogicalName(ln_ref);
 
         // Create GET request using GetService
         let invoke_id = self.get_service.next_invoke_id();

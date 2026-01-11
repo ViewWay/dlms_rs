@@ -39,10 +39,11 @@
 //!   - ✅ GET/SET/ACTION/Event Notification 服务层（完整功能）
 //! - 客户端连接管理
 //!   - ✅ Connection trait 定义
-//!   - ✅ LnConnection 基础结构
+//!   - ✅ LnConnection 完整实现
 //!   - ✅ ConnectionBuilder 实现（支持TCP和Serial）
-//!   - ✅ GET/SET/ACTION 操作框架（需要完整会话层集成）
-//!   - ⏳ 完整连接建立流程（传输层+会话层+应用层集成）
+//!   - ✅ GET/SET/ACTION 操作完整实现
+//!   - ✅ 完整连接建立流程（传输层+会话层+应用层集成）
+//!   - ✅ 完整连接关闭流程
 //!
 //! ## 📋 待实现
 //! - ISO-ACSE 层（✅ 基础实现完成，部分高级功能待实现）

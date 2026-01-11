@@ -263,15 +263,30 @@ impl ConnectionBuilder {
     /// - Serial transport requires HDLC addresses
     /// - Wrapper session requires client_id and logical_device_id
     pub fn build_ln(self) -> DlmsResult<LnConnection> {
-        // Validate transport type
-        if matches!(self.transport_type, TransportType::None) {
-            return Err(dlms_core::DlmsError::InvalidData(
-                "Transport type must be configured (TCP or Serial)".to_string(),
-            ));
-        }
+        // Validate transport type and convert to TransportConfig
+        // This ensures the transport information is properly transferred from the builder
+        // to the LnConnectionConfig, which is required for LnConnection::open() to work.
+        let transport = match self.transport_type {
+            TransportType::None => {
+                return Err(dlms_core::DlmsError::InvalidData(
+                    "Transport type must be configured (TCP or Serial)".to_string(),
+                ));
+            }
+            TransportType::Tcp { address } => {
+                use super::ln_connection::TransportConfig;
+                TransportConfig::Tcp { address }
+            }
+            TransportType::Serial { port_name, baud_rate } => {
+                use super::ln_connection::TransportConfig;
+                TransportConfig::Serial { port_name, baud_rate }
+            }
+        };
 
         // Create connection configuration
+        // IMPORTANT: The transport field must be set here, otherwise LnConnection::open()
+        // will fail with "Transport configuration is required" error.
         let config = LnConnectionConfig {
+            transport: Some(transport), // Transport config is required and validated above
             local_address: self.local_hdlc_address,
             remote_address: self.remote_hdlc_address,
             client_id: self.client_id,
