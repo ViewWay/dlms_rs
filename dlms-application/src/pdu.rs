@@ -257,10 +257,10 @@ impl InitiateRequest {
     ///
     /// # Optional Field Encoding
     /// Optional fields in A-XDR are encoded as:
-    /// 1. The field value (if present)
-    /// 2. A Boolean flag indicating whether the field is used
+    /// 1. A Boolean flag indicating whether the field is used
+    /// 2. The field value (if the flag is true)
     ///
-    /// This allows the decoder to know whether to read the field value.
+    /// This allows the decoder to read the flag first, then conditionally read the value.
     pub fn encode(&self) -> DlmsResult<Vec<u8>> {
         let mut encoder = AxdrEncoder::new();
 
@@ -275,21 +275,23 @@ impl InitiateRequest {
         encoder.encode_u8(self.proposed_dlms_version_number)?;
 
         // 4. proposed_quality_of_service (optional Integer8)
-        // Optional field: encode value first (if present), then usage flag
+        // Optional field: encode usage flag first, then value (if present)
+        // Note: In A-XDR, optional fields are encoded as: flag, then value
+        encoder.encode_bool(self.proposed_quality_of_service.is_some())?;
         if let Some(qos) = self.proposed_quality_of_service {
             encoder.encode_i8(qos)?;
         }
-        encoder.encode_bool(self.proposed_quality_of_service.is_some())?;
 
         // 5. response_allowed (Boolean, default true)
         encoder.encode_bool(self.response_allowed)?;
 
         // 6. dedicated_key (optional OctetString)
-        // Optional field: encode value first (if present), then usage flag
+        // Optional field: encode usage flag first, then value (if present)
+        // Note: In A-XDR, optional fields are encoded as: flag, then value
+        encoder.encode_bool(self.dedicated_key.is_some())?;
         if let Some(ref key) = self.dedicated_key {
             encoder.encode_octet_string(key)?;
         }
-        encoder.encode_bool(self.dedicated_key.is_some())?;
 
         Ok(encoder.into_bytes())
     }
@@ -461,11 +463,12 @@ impl InitiateResponse {
         encoder.encode_u8(self.negotiated_dlms_version_number)?;
 
         // 5. negotiated_quality_of_service (optional Integer8)
-        // Optional field: encode value first (if present), then usage flag
+        // Optional field: encode usage flag first, then value (if present)
+        // Note: In A-XDR, optional fields are encoded as: flag, then value
+        encoder.encode_bool(self.negotiated_quality_of_service.is_some())?;
         if let Some(qos) = self.negotiated_quality_of_service {
             encoder.encode_i8(qos)?;
         }
-        encoder.encode_bool(self.negotiated_quality_of_service.is_some())?;
 
         Ok(encoder.into_bytes())
     }
