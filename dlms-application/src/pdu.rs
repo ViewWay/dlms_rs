@@ -1424,7 +1424,7 @@ impl GetRequest {
                     let len_bytes = decoder.decode_fixed_bytes(length_of_length)?;
                     let mut len = 0usize;
                     for &byte in len_bytes.iter() {
-                        len = (len << 8) | (byte as usize));
+                        len = (len << 8) | (byte as usize);
                     }
                     len
                 };
@@ -1463,7 +1463,7 @@ impl GetRequest {
                         let len_bytes = decoder.decode_fixed_bytes(length_of_length)?;
                         let mut len = 0usize;
                         for &byte in len_bytes.iter() {
-                            len = (len << 8) | (byte as usize));
+                            len = (len << 8) | (byte as usize);
                         }
                         len
                     };
@@ -2153,19 +2153,29 @@ impl SetDataResult {
     /// Encoding format (A-XDR CHOICE):
     /// - Success: tag 0 (no value)
     /// - DataAccessResult: tag 1 + error code (Unsigned8)
+    ///
+    /// # A-XDR CHOICE Encoding Order
+    /// According to A-XDR standard, CHOICE types are encoded as: tag + value.
+    /// The tag comes first to identify which variant is present, followed by the value.
+    ///
+    /// # Why This Order?
+    /// - **Tag First**: Allows the decoder to know which variant to expect before reading the value
+    /// - **Standard Compliance**: Matches A-XDR standard specification
+    /// - **Consistency**: Matches the decode order (tag first, then value)
     pub fn encode(&self) -> DlmsResult<Vec<u8>> {
         let mut encoder = AxdrEncoder::new();
 
         match self {
             SetDataResult::Success => {
                 // Encode choice tag (0 = Success)
+                // Success variant has no value, only the tag
                 encoder.encode_u8(0)?;
             }
             SetDataResult::DataAccessResult(code) => {
-                // Encode value first (A-XDR reverse order)
-                encoder.encode_u8(*code)?;
-                // Encode choice tag (1 = DataAccessResult)
+                // Encode choice tag first (1 = DataAccessResult)
                 encoder.encode_u8(1)?;
+                // Encode value after tag
+                encoder.encode_u8(*code)?;
             }
         }
 
@@ -2173,16 +2183,20 @@ impl SetDataResult {
     }
 
     /// Decode from A-XDR format
+    ///
+    /// # A-XDR CHOICE Decoding Order
+    /// Decodes in the same order as encoding: tag first, then value.
+    /// This matches the A-XDR standard and ensures roundtrip compatibility.
     pub fn decode(data: &[u8]) -> DlmsResult<Self> {
         let mut decoder = AxdrDecoder::new(data);
 
-        // Decode choice tag first (A-XDR reverse order)
+        // Decode choice tag first
         let choice_tag = decoder.decode_u8()?;
 
         match choice_tag {
             0 => Ok(Self::Success),
             1 => {
-                // DataAccessResult variant
+                // DataAccessResult variant: decode value after tag
                 let code = decoder.decode_u8()?;
                 Ok(Self::DataAccessResult(code))
             }
@@ -2739,28 +2753,39 @@ impl ActionResult {
     /// Encode to A-XDR format
     ///
     /// Encoding format (A-XDR CHOICE):
-    /// - SuccessWithData: tag 1 + DataObject
     /// - Success: tag 0 (no value)
+    /// - SuccessWithData: tag 1 + DataObject
     /// - DataAccessResult: tag 2 + error code (Unsigned8)
+    ///
+    /// # A-XDR CHOICE Encoding Order
+    /// According to A-XDR standard, CHOICE types are encoded as: tag + value.
+    /// The tag comes first to identify which variant is present, followed by the value.
+    ///
+    /// # Why This Order?
+    /// - **Tag First**: Allows the decoder to know which variant to expect before reading the value
+    /// - **Standard Compliance**: Matches A-XDR standard specification
+    /// - **Consistency**: Matches the decode order (tag first, then value)
+    /// - **Roundtrip Compatibility**: Ensures encode/decode roundtrip works correctly
     pub fn encode(&self) -> DlmsResult<Vec<u8>> {
         let mut encoder = AxdrEncoder::new();
 
         match self {
-            ActionResult::SuccessWithData(data) => {
-                // Encode value first (A-XDR reverse order)
-                encoder.encode_data_object(data)?;
-                // Encode choice tag (1 = SuccessWithData)
-                encoder.encode_u8(1)?;
-            }
             ActionResult::Success => {
                 // Encode choice tag (0 = Success)
+                // Success variant has no value, only the tag
                 encoder.encode_u8(0)?;
             }
+            ActionResult::SuccessWithData(data) => {
+                // Encode choice tag first (1 = SuccessWithData)
+                encoder.encode_u8(1)?;
+                // Encode value after tag
+                encoder.encode_data_object(data)?;
+            }
             ActionResult::DataAccessResult(code) => {
-                // Encode value first (A-XDR reverse order)
-                encoder.encode_u8(*code)?;
-                // Encode choice tag (2 = DataAccessResult)
+                // Encode choice tag first (2 = DataAccessResult)
                 encoder.encode_u8(2)?;
+                // Encode value after tag
+                encoder.encode_u8(*code)?;
             }
         }
 
@@ -2768,21 +2793,25 @@ impl ActionResult {
     }
 
     /// Decode from A-XDR format
+    ///
+    /// # A-XDR CHOICE Decoding Order
+    /// Decodes in the same order as encoding: tag first, then value.
+    /// This matches the A-XDR standard and ensures roundtrip compatibility.
     pub fn decode(data: &[u8]) -> DlmsResult<Self> {
         let mut decoder = AxdrDecoder::new(data);
 
-        // Decode choice tag first (A-XDR reverse order)
+        // Decode choice tag first
         let choice_tag = decoder.decode_u8()?;
 
         match choice_tag {
             0 => Ok(Self::Success),
             1 => {
-                // SuccessWithData variant
+                // SuccessWithData variant: decode value after tag
                 let data_obj = decoder.decode_data_object()?;
                 Ok(Self::SuccessWithData(data_obj))
             }
             2 => {
-                // DataAccessResult variant
+                // DataAccessResult variant: decode value after tag
                 let code = decoder.decode_u8()?;
                 Ok(Self::DataAccessResult(code))
             }
