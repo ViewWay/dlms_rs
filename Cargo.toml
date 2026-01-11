@@ -45,6 +45,7 @@ anyhow = "1.0.100"
 bytes = "1.11.0"
 log = "0.4.29"
 regex = "1.12.2"
+async-trait = "0.1"
 
 [workspace.dev-dependencies]
 tokio-test = "0.4.5"

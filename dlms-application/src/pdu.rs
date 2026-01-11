@@ -1637,9 +1637,11 @@ impl GetRequest {
                 // Encode choice tag first (2 = Next)
                 encoder.encode_u8(2)?;
                 // Encode value after tag (in reverse order for SEQUENCE)
-                encoder.encode_u32(*block_number)?;
+                // 1. invoke_id_and_priority (InvokeIdAndPriority) - last field first
                 let invoke_bytes = invoke_id_and_priority.encode()?;
                 encoder.encode_octet_string(&invoke_bytes)?;
+                // 2. block_number (Unsigned32)
+                encoder.encode_u32(*block_number)?;
             }
             GetRequest::WithList {
                 invoke_id_and_priority,
@@ -1938,14 +1940,18 @@ impl GetResponse {
                 last_block,
                 block_data,
             } => {
-                // Encode value first (A-XDR reverse order)
-                encoder.encode_octet_string(block_data)?;
-                encoder.encode_bool(*last_block)?;
-                encoder.encode_u32(*block_number)?;
-                let invoke_bytes = invoke_id_and_priority.encode()?;
-                encoder.encode_bytes(&invoke_bytes)?;
-                // Encode choice tag (2 = WithDataBlock)
+                // Encode choice tag first (2 = WithDataBlock)
                 encoder.encode_u8(2)?;
+                // Encode value after tag (in reverse order for SEQUENCE)
+                // 1. invoke_id_and_priority (InvokeIdAndPriority) - last field first
+                let invoke_bytes = invoke_id_and_priority.encode()?;
+                encoder.encode_octet_string(&invoke_bytes)?;
+                // 2. block_number (Unsigned32)
+                encoder.encode_u32(*block_number)?;
+                // 3. last_block (Boolean)
+                encoder.encode_bool(*last_block)?;
+                // 4. block_data (OctetString)
+                encoder.encode_octet_string(block_data)?;
             }
             GetResponse::WithList {
                 invoke_id_and_priority,

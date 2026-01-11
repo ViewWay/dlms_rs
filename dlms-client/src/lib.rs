@@ -35,4 +35,4 @@
 
 pub mod connection;
 
-pub use connection::*;
+pub use connection::{Connection, ConnectionState, LnConnection, LnConnectionConfig};

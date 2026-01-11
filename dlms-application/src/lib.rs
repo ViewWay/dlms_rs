@@ -7,11 +7,11 @@
 //! ## PDU (Protocol Data Unit)
 //! - [x] Initiate Request PDU 编码/解码
 //! - [x] Initiate Response PDU 编码/解码
-//! - [x] Get Request PDU 编码/解码（Normal和WithList已实现，Next待实现）
-//! - [x] Get Response PDU 编码/解码（Normal和WithList已实现，WithDataBlock待实现）
-//! - [ ] Get Request Next PDU 完整实现（验证和完善现有实现）
+//! - [x] Get Request PDU 编码/解码（Normal、Next和WithList已完整实现）
+//! - [x] Get Response PDU 编码/解码（Normal、WithDataBlock和WithList已完整实现）
+//! - [x] Get Request Next PDU 完整实现（已验证和完善）
 //! - [x] Get Request WithList PDU 完整实现
-//! - [ ] Get Response WithDataBlock PDU 完整实现（验证和完善现有实现）
+//! - [x] Get Response WithDataBlock PDU 完整实现（已验证和完善）
 //! - [x] Get Response WithList PDU 完整实现
 //! - [x] Set Request PDU 编码/解码（Normal类型已实现）
 //! - [x] Set Response PDU 编码/解码（Normal类型已实现）
