@@ -35,4 +35,5 @@ pub mod sn_connection;
 
 pub use connection::{Connection, ConnectionState};
 pub use ln_connection::{LnConnection, LnConnectionConfig};
+pub use sn_connection::{SnConnection, SnConnectionConfig};
 pub use builder::ConnectionBuilder;

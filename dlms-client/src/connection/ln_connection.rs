@@ -49,7 +49,7 @@ use std::net::SocketAddr;
 /// Distinguishes between HDLC and Wrapper session layers, which have different
 /// connection establishment procedures and data framing.
 #[derive(Debug)]
-enum SessionLayer {
+pub(crate) enum SessionLayer {
     /// HDLC session with TCP transport
     HdlcTcp(HdlcConnection<TcpTransport>),
     /// HDLC session with Serial transport

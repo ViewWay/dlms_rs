@@ -21,7 +21,7 @@
 //!     .build_ln()?;
 //! ```
 
-use super::{LnConnection, LnConnectionConfig};
+use super::{LnConnection, LnConnectionConfig, SnConnection, SnConnectionConfig};
 use dlms_core::DlmsResult;
 use dlms_session::hdlc::HdlcAddress;
 use dlms_security::SecuritySuite;
@@ -307,15 +307,52 @@ impl ConnectionBuilder {
     /// A configured `SnConnection` ready to be opened
     ///
     /// # Errors
-    /// Returns error if configuration is invalid
+    /// Returns error if:
+    /// - Transport type is not configured
+    /// - Required session parameters are missing
+    /// - Configuration is invalid
     ///
-    /// # Note
-    /// SN connection implementation is pending. This method is a placeholder.
-    pub fn build_sn(self) -> DlmsResult<()> {
-        // TODO: Implement SN connection building
-        Err(dlms_core::DlmsError::InvalidData(
-            "SN connection building not yet implemented".to_string(),
-        ))
+    /// # Validation
+    /// - TCP transport requires either HDLC addresses or Wrapper IDs
+    /// - Serial transport requires HDLC addresses
+    /// - Wrapper session requires client_id and logical_device_id
+    pub fn build_sn(self) -> DlmsResult<SnConnection> {
+        // Validate transport type and convert to TransportConfig
+        // This ensures the transport information is properly transferred from the builder
+        // to the SnConnectionConfig, which is required for SnConnection::open() to work.
+        let transport = match self.transport_type {
+            TransportType::None => {
+                return Err(dlms_core::DlmsError::InvalidData(
+                    "Transport type must be configured (TCP or Serial)".to_string(),
+                ));
+            }
+            TransportType::Tcp { address } => {
+                use super::ln_connection::TransportConfig;
+                TransportConfig::Tcp { address }
+            }
+            TransportType::Serial { port_name, baud_rate } => {
+                use super::ln_connection::TransportConfig;
+                TransportConfig::Serial { port_name, baud_rate }
+            }
+        };
+
+        // Create connection configuration
+        // IMPORTANT: The transport field must be set here, otherwise SnConnection::open()
+        // will fail with "Transport configuration is required" error.
+        let config = SnConnectionConfig {
+            transport: Some(transport), // Transport config is required and validated above
+            local_address: self.local_hdlc_address,
+            remote_address: self.remote_hdlc_address,
+            client_id: self.client_id,
+            logical_device_id: self.logical_device_id,
+            security_suite: self.security_suite,
+            conformance: self.conformance,
+            max_pdu_size: self.max_pdu_size,
+            dlms_version: self.dlms_version,
+        };
+
+        // Create connection
+        Ok(SnConnection::new(config))
     }
 }
 

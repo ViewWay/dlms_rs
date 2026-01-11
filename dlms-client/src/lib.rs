@@ -10,7 +10,7 @@
 //! - [x] TCP 连接构建器（基础实现）
 //! - [x] Serial 连接构建器（基础实现）
 //! - [x] 逻辑名称（LN）连接实现（完整实现，支持HDLC和Wrapper）
-//! - [ ] 短名称（SN）连接实现
+//! - [x] 短名称（SN）连接实现（完整实现，支持HDLC和Wrapper）
 //! - [x] 连接建立流程（完整实现，包括传输层、会话层、应用层）
 //! - [x] 连接关闭和清理（完整实现）
 //! - [x] 连接状态管理
@@ -35,4 +35,7 @@
 
 pub mod connection;
 
-pub use connection::{Connection, ConnectionState, LnConnection, LnConnectionConfig, ConnectionBuilder};
+pub use connection::{
+    Connection, ConnectionState, LnConnection, LnConnectionConfig,
+    SnConnection, SnConnectionConfig, ConnectionBuilder,
+};

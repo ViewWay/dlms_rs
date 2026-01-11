@@ -39,8 +39,9 @@
 //!   - ✅ GET/SET/ACTION/Event Notification 服务层（完整功能）
 //! - 客户端连接管理
 //!   - ✅ Connection trait 定义
-//!   - ✅ LnConnection 完整实现
-//!   - ✅ ConnectionBuilder 实现（支持TCP和Serial）
+//!   - ✅ LnConnection 完整实现（支持HDLC和Wrapper）
+//!   - ✅ SnConnection 完整实现（支持HDLC和Wrapper）
+//!   - ✅ ConnectionBuilder 实现（支持TCP和Serial，LN和SN）
 //!   - ✅ GET/SET/ACTION 操作完整实现
 //!   - ✅ 完整连接建立流程（传输层+会话层+应用层集成）
 //!   - ✅ 完整连接关闭流程
