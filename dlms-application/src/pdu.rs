@@ -3747,15 +3747,15 @@ impl AccessRequestSpecification {
                 // Encode choice tag first (1 = Get)
                 encoder.encode_u8(1)?;
                 // Encode value after tag (in reverse order for SEQUENCE)
-                // 1. access_selection (optional SelectiveAccessDescriptor)
+                // 1. cosem_attribute_descriptor (CosemAttributeDescriptor) - last field first
+                let attr_bytes = cosem_attribute_descriptor.encode()?;
+                encoder.encode_octet_string(&attr_bytes)?;
+                // 2. access_selection (optional SelectiveAccessDescriptor)
                 encoder.encode_bool(access_selection.is_some())?;
                 if let Some(ref access_desc) = access_selection {
                     let access_bytes = access_desc.encode()?;
                     encoder.encode_octet_string(&access_bytes)?;
                 }
-                // 2. cosem_attribute_descriptor (CosemAttributeDescriptor)
-                let attr_bytes = cosem_attribute_descriptor.encode()?;
-                encoder.encode_octet_string(&attr_bytes)?;
             }
             AccessRequestSpecification::Set {
                 cosem_attribute_descriptor,
@@ -3765,17 +3765,17 @@ impl AccessRequestSpecification {
                 // Encode choice tag first (2 = Set)
                 encoder.encode_u8(2)?;
                 // Encode value after tag (in reverse order for SEQUENCE)
-                // 1. value (DataObject)
-                encoder.encode_data_object(value)?;
+                // 1. cosem_attribute_descriptor (CosemAttributeDescriptor) - last field first
+                let attr_bytes = cosem_attribute_descriptor.encode()?;
+                encoder.encode_octet_string(&attr_bytes)?;
                 // 2. access_selection (optional SelectiveAccessDescriptor)
                 encoder.encode_bool(access_selection.is_some())?;
                 if let Some(ref access_desc) = access_selection {
                     let access_bytes = access_desc.encode()?;
                     encoder.encode_octet_string(&access_bytes)?;
                 }
-                // 3. cosem_attribute_descriptor (CosemAttributeDescriptor)
-                let attr_bytes = cosem_attribute_descriptor.encode()?;
-                encoder.encode_octet_string(&attr_bytes)?;
+                // 3. value (DataObject)
+                encoder.encode_data_object(value)?;
             }
             AccessRequestSpecification::Action {
                 cosem_method_descriptor,
@@ -3784,14 +3784,14 @@ impl AccessRequestSpecification {
                 // Encode choice tag first (3 = Action)
                 encoder.encode_u8(3)?;
                 // Encode value after tag (in reverse order for SEQUENCE)
-                // 1. method_invocation_parameters (optional DataObject)
+                // 1. cosem_method_descriptor (CosemMethodDescriptor) - last field first
+                let method_bytes = cosem_method_descriptor.encode()?;
+                encoder.encode_octet_string(&method_bytes)?;
+                // 2. method_invocation_parameters (optional DataObject)
                 encoder.encode_bool(method_invocation_parameters.is_some())?;
                 if let Some(ref params) = method_invocation_parameters {
                     encoder.encode_data_object(params)?;
                 }
-                // 2. cosem_method_descriptor (CosemMethodDescriptor)
-                let method_bytes = cosem_method_descriptor.encode()?;
-                encoder.encode_octet_string(&method_bytes)?;
             }
         }
 
@@ -3937,7 +3937,11 @@ impl AccessRequest {
         let mut encoder = AxdrEncoder::new();
 
         // Encode in reverse order (A-XDR SEQUENCE convention)
-        // 1. access_request_list (array of AccessRequestSpecification)
+        // 1. invoke_id_and_priority (InvokeIdAndPriority) - last field first
+        let invoke_bytes = self.invoke_id_and_priority.encode()?;
+        encoder.encode_octet_string(&invoke_bytes)?;
+
+        // 2. access_request_list (array of AccessRequestSpecification)
         // Encode array length: first byte indicates format
         let list_len = self.access_request_list.len();
         if list_len >= 128 {
@@ -3952,10 +3956,6 @@ impl AccessRequest {
             let spec_bytes = access_spec.encode()?;
             encoder.encode_octet_string(&spec_bytes)?;
         }
-
-        // 2. invoke_id_and_priority (InvokeIdAndPriority)
-        let invoke_bytes = self.invoke_id_and_priority.encode()?;
-        encoder.encode_octet_string(&invoke_bytes)?;
 
         Ok(encoder.into_bytes())
     }
@@ -4162,7 +4162,11 @@ impl AccessResponse {
         let mut encoder = AxdrEncoder::new();
 
         // Encode in reverse order (A-XDR SEQUENCE convention)
-        // 1. access_response_list (array of AccessResponseSpecification)
+        // 1. invoke_id_and_priority (InvokeIdAndPriority) - last field first
+        let invoke_bytes = self.invoke_id_and_priority.encode()?;
+        encoder.encode_octet_string(&invoke_bytes)?;
+
+        // 2. access_response_list (array of AccessResponseSpecification)
         // Encode array length: first byte indicates format
         let list_len = self.access_response_list.len();
         if list_len >= 128 {
@@ -4177,10 +4181,6 @@ impl AccessResponse {
             let spec_bytes = response_spec.encode()?;
             encoder.encode_octet_string(&spec_bytes)?;
         }
-
-        // 2. invoke_id_and_priority (InvokeIdAndPriority)
-        let invoke_bytes = self.invoke_id_and_priority.encode()?;
-        encoder.encode_octet_string(&invoke_bytes)?;
 
         Ok(encoder.into_bytes())
     }
