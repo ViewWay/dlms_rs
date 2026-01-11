@@ -7,10 +7,10 @@
 //! ## 加密功能
 //! - [x] AES-GCM 加密/解密
 //! - [x] Security Control 字节处理
-//! - [ ] 密钥派生函数（KDF）
-//! - [ ] 系统标题（System Title）管理
-//! - [ ] 帧计数器（Frame Counter）管理
-//! - [ ] 加密帧构建和解析
+//! - [x] 密钥派生函数（KDF）- 基础实现
+//! - [x] 系统标题（System Title）管理
+//! - [x] 帧计数器（Frame Counter）管理
+//! - [ ] 加密帧构建和解析（需要集成System Title和Frame Counter）
 //!
 //! ## 认证功能
 //! - [x] GMAC 认证
@@ -23,6 +23,10 @@
 //! ## 密钥管理
 //! - [x] AES 密钥生成
 //! - [x] RFC 3394 密钥包装/解包
+//! - [x] 密钥派生函数（KDF）- 基础实现
+//! - [x] System Title管理
+//! - [x] Frame Counter管理
+//! - [x] xDLMS上下文管理
 //! - [ ] 密钥存储和管理
 //! - [ ] 密钥更新机制
 //! - [ ] 主密钥（KEK）管理
@@ -39,6 +43,8 @@ pub mod suite;
 pub mod encryption;
 pub mod authentication;
 pub mod utils;
+pub mod constants;
+pub mod xdlms;
 
 pub use error::{DlmsError, DlmsResult};
 pub use suite::{
@@ -47,3 +53,5 @@ pub use suite::{
 pub use encryption::{AesGcmEncryption, SecurityControl};
 pub use authentication::{GmacAuth, LowAuth, Hls5GmacAuth};
 pub use utils::{KeyId, generate_aes128_key, wrap_aes_rfc3394_key, unwrap_aes_rfc3394_key};
+pub use constants::*;
+pub use xdlms::{SystemTitle, FrameCounter, KeyDerivationFunction, XdlmsContext};

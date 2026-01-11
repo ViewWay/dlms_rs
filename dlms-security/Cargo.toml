@@ -14,6 +14,8 @@ path = "src/lib.rs"
 [dependencies]
 ring = { workspace = true }
 aes-gcm = { workspace = true }
+aes = "0.8"
+cipher = "0.4"
 hmac = { workspace = true }
 sha2 = { workspace = true }
 dlms-core = { path = "../dlms-core" }

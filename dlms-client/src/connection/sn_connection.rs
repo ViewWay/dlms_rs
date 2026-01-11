@@ -40,7 +40,7 @@ use dlms_application::pdu::{
     ActionRequest, ActionResponse, CosemAttributeDescriptor, CosemMethodDescriptor,
     InvokeIdAndPriority, Conformance,
 };
-use dlms_application::addressing::ShortNameReference;
+// ShortNameReference is no longer directly used - we use CosemAttributeDescriptor::new_short_name() instead
 use dlms_core::{DlmsError, DlmsResult, DataObject};
 use dlms_session::hdlc::{HdlcConnection, HdlcAddress};
 use dlms_session::wrapper::WrapperSession;
@@ -351,8 +351,12 @@ impl Connection for SnConnection {
         }
 
         // Create attribute descriptor with SN addressing
-        let sn_ref = ShortNameReference::new(base_name, attribute_id)?;
-        let attribute_descriptor = CosemAttributeDescriptor::ShortName(sn_ref);
+        // Note: class_id is required for A-XDR encoding even in SN addressing
+        let attribute_descriptor = CosemAttributeDescriptor::new_short_name(
+            class_id,
+            base_name,
+            attribute_id,
+        )?;
 
         // Create GET request using GetService
         let invoke_id = self.get_service.next_invoke_id();
@@ -419,8 +423,12 @@ impl Connection for SnConnection {
         }
 
         // Create attribute descriptor with SN addressing
-        let sn_ref = ShortNameReference::new(base_name, attribute_id)?;
-        let attribute_descriptor = CosemAttributeDescriptor::ShortName(sn_ref);
+        // Note: class_id is required for A-XDR encoding even in SN addressing
+        let attribute_descriptor = CosemAttributeDescriptor::new_short_name(
+            class_id,
+            base_name,
+            attribute_id,
+        )?;
 
         // Create SET request using SetService
         let invoke_id = self.set_service.next_invoke_id();
@@ -489,8 +497,12 @@ impl Connection for SnConnection {
         }
 
         // Create method descriptor with SN addressing
-        let sn_ref = ShortNameReference::new(base_name, method_id)?;
-        let method_descriptor = CosemMethodDescriptor::ShortName(sn_ref);
+        // Note: class_id is required for A-XDR encoding even in SN addressing
+        let method_descriptor = CosemMethodDescriptor::new_short_name(
+            class_id,
+            base_name,
+            method_id,
+        )?;
 
         // Create ACTION request using ActionService
         let invoke_id = self.action_service.next_invoke_id();

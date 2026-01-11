@@ -164,7 +164,7 @@ impl EventNotificationService {
                         return Ok(notification);
                     }
                 }
-                crate::pdu::CosemAttributeDescriptor::ShortName(_) => {
+                crate::pdu::CosemAttributeDescriptor::ShortName { .. } => {
                     // Short name addressing doesn't have OBIS code, skip filter check
                     // or implement short name filtering if needed
                 }
@@ -220,7 +220,7 @@ impl EventNotificationService {
     pub fn extract_obis_code(notification: &EventNotification) -> Option<&ObisCode> {
         match &notification.cosem_attribute_descriptor {
             crate::pdu::CosemAttributeDescriptor::LogicalName(ln_ref) => Some(&ln_ref.instance_id),
-            crate::pdu::CosemAttributeDescriptor::ShortName(_) => None,
+            crate::pdu::CosemAttributeDescriptor::ShortName { .. } => None,
         }
     }
 
@@ -234,7 +234,7 @@ impl EventNotificationService {
     pub fn extract_class_id(notification: &EventNotification) -> u16 {
         match &notification.cosem_attribute_descriptor {
             crate::pdu::CosemAttributeDescriptor::LogicalName(ln_ref) => ln_ref.class_id,
-            crate::pdu::CosemAttributeDescriptor::ShortName(sn_ref) => sn_ref.class_id,
+            crate::pdu::CosemAttributeDescriptor::ShortName { class_id, .. } => *class_id,
         }
     }
 
@@ -248,7 +248,7 @@ impl EventNotificationService {
     pub fn extract_attribute_id(notification: &EventNotification) -> u8 {
         match &notification.cosem_attribute_descriptor {
             crate::pdu::CosemAttributeDescriptor::LogicalName(ln_ref) => ln_ref.id,
-            crate::pdu::CosemAttributeDescriptor::ShortName(sn_ref) => sn_ref.id,
+            crate::pdu::CosemAttributeDescriptor::ShortName { reference, .. } => reference.id,
         }
     }
 }

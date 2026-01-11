@@ -892,7 +892,15 @@ pub enum CosemAttributeDescriptor {
     /// Logical Name addressing
     LogicalName(LogicalNameReference),
     /// Short Name addressing
-    ShortName(ShortNameReference),
+    /// 
+    /// Note: class_id is included here because it's required in the A-XDR encoding
+    /// even though ShortNameReference itself doesn't contain it.
+    ShortName {
+        /// Class ID (required for A-XDR encoding)
+        class_id: u16,
+        /// Short name reference (base_name and attribute_id)
+        reference: ShortNameReference,
+    },
 }
 
 impl CosemAttributeDescriptor {
@@ -917,10 +925,14 @@ impl CosemAttributeDescriptor {
     /// Create a new descriptor using Short Name addressing
     ///
     /// # Arguments
+    /// * `class_id` - COSEM interface class ID (required for A-XDR encoding)
     /// * `base_name` - Base name (16-bit address)
     /// * `attribute_id` - Attribute ID (1-255)
-    pub fn new_short_name(base_name: u16, attribute_id: u8) -> DlmsResult<Self> {
-        Ok(Self::ShortName(ShortNameReference::new(base_name, attribute_id)?))
+    pub fn new_short_name(class_id: u16, base_name: u16, attribute_id: u8) -> DlmsResult<Self> {
+        Ok(Self::ShortName {
+            class_id,
+            reference: ShortNameReference::new(base_name, attribute_id)?,
+        })
     }
 
     /// Encode to A-XDR format
@@ -949,19 +961,18 @@ impl CosemAttributeDescriptor {
                 // 3. class_id (Unsigned16)
                 encoder.encode_u16(ln_ref.class_id)?;
             }
-            CosemAttributeDescriptor::ShortName(ref sn_ref) => {
+            CosemAttributeDescriptor::ShortName { class_id, reference } => {
                 // Encode in reverse order
                 // 1. attribute_id (Integer8)
-                encoder.encode_i8(sn_ref.id as i8)?;
+                encoder.encode_i8(reference.id as i8)?;
 
                 // 2. instance_id (OctetString, 2 bytes for base name)
                 // Note: For SN addressing, we encode base_name as a 2-byte OctetString
-                encoder.encode_octet_string(&sn_ref.base_name.to_be_bytes())?;
+                encoder.encode_octet_string(&reference.base_name.to_be_bytes())?;
 
                 // 3. class_id (Unsigned16)
-                // Note: For SN addressing, class_id is typically 0 or not used
-                // But we encode it for consistency with the structure
-                encoder.encode_u16(0)?; // SN addressing doesn't use class_id in the same way
+                // class_id is required in A-XDR encoding even for SN addressing
+                encoder.encode_u16(*class_id)?;
             }
         }
 
@@ -1014,7 +1025,10 @@ impl CosemAttributeDescriptor {
             2 => {
                 // Short Name addressing
                 let base_name = u16::from_be_bytes([instance_bytes[0], instance_bytes[1]]);
-                Ok(Self::ShortName(ShortNameReference::new(base_name, attribute_id)?))
+                Ok(Self::ShortName {
+                    class_id,
+                    reference: ShortNameReference::new(base_name, attribute_id)?,
+                })
             }
             _ => Err(DlmsError::InvalidData(format!(
                 "Invalid instance_id length: expected 2 or 6 bytes, got {}",
@@ -2634,7 +2648,15 @@ pub enum CosemMethodDescriptor {
     /// Logical Name addressing
     LogicalName(LogicalNameReference),
     /// Short Name addressing
-    ShortName(ShortNameReference),
+    /// 
+    /// Note: class_id is included here because it's required in the A-XDR encoding
+    /// even though ShortNameReference itself doesn't contain it.
+    ShortName {
+        /// Class ID (required for A-XDR encoding)
+        class_id: u16,
+        /// Short name reference (base_name and method_id)
+        reference: ShortNameReference,
+    },
 }
 
 impl CosemMethodDescriptor {
@@ -2659,10 +2681,14 @@ impl CosemMethodDescriptor {
     /// Create a new method descriptor using Short Name addressing
     ///
     /// # Arguments
+    /// * `class_id` - COSEM interface class ID (required for A-XDR encoding)
     /// * `base_name` - Base name (16-bit address)
     /// * `method_id` - Method ID within the class
-    pub fn new_short_name(base_name: u16, method_id: u8) -> DlmsResult<Self> {
-        Ok(Self::ShortName(ShortNameReference::new(base_name, method_id)?))
+    pub fn new_short_name(class_id: u16, base_name: u16, method_id: u8) -> DlmsResult<Self> {
+        Ok(Self::ShortName {
+            class_id,
+            reference: ShortNameReference::new(base_name, method_id)?,
+        })
     }
 
     /// Encode to A-XDR format
@@ -2690,17 +2716,17 @@ impl CosemMethodDescriptor {
                 // 3. class_id (Unsigned16)
                 encoder.encode_u16(ln_ref.class_id)?;
             }
-            CosemMethodDescriptor::ShortName(ref sn_ref) => {
+            CosemMethodDescriptor::ShortName { class_id, reference } => {
                 // Encode in reverse order
                 // 1. method_id (Integer8)
-                encoder.encode_i8(sn_ref.id as i8)?;
+                encoder.encode_i8(reference.id as i8)?;
 
                 // 2. instance_id (OctetString, 2 bytes for base name)
-                encoder.encode_octet_string(&sn_ref.base_name.to_be_bytes())?;
+                encoder.encode_octet_string(&reference.base_name.to_be_bytes())?;
 
                 // 3. class_id (Unsigned16)
-                // Note: For SN addressing, class_id is typically 0 or not used
-                encoder.encode_u16(0)?;
+                // class_id is required in A-XDR encoding even for SN addressing
+                encoder.encode_u16(*class_id)?;
             }
         }
 
@@ -2750,7 +2776,10 @@ impl CosemMethodDescriptor {
             2 => {
                 // Short Name addressing
                 let base_name = u16::from_be_bytes([instance_bytes[0], instance_bytes[1]]);
-                Ok(Self::ShortName(ShortNameReference::new(base_name, method_id)?))
+                Ok(Self::ShortName {
+                    class_id,
+                    reference: ShortNameReference::new(base_name, method_id)?,
+                })
             }
             _ => Err(DlmsError::InvalidData(format!(
                 "Invalid instance_id length: expected 2 or 6 bytes, got {}",

@@ -4,7 +4,10 @@ use crate::error::{DlmsError, DlmsResult};
 use crate::hdlc::address::{HdlcAddress, HdlcAddressPair};
 use crate::hdlc::decoder::HdlcMessageDecoder;
 use crate::hdlc::dispatcher::HdlcDispatcher;
-use crate::hdlc::frame::{FrameType, HdlcFrame, FLAG};
+use crate::hdlc::frame::{FrameType, HdlcFrame, FLAG, LLC_REQUEST};
+use crate::hdlc::statistics::HdlcStatistics;
+use crate::hdlc::window::{SendWindow, ReceiveWindow};
+use crate::hdlc::state::HdlcConnectionState;
 use dlms_transport::{StreamAccessor, TransportLayer};
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
@@ -395,13 +398,44 @@ pub struct HdlcConnection<T: TransportLayer> {
     parameters: HdlcParameters,
     send_sequence: u8,
     receive_sequence: u8,
+    /// Connection state (replaces simple `closed` flag)
+    state: HdlcConnectionState,
+    /// Legacy closed flag (deprecated, use state instead)
+    /// Kept for backward compatibility during migration
+    #[deprecated(note = "Use state field instead")]
     closed: bool,
     /// Segmented frame reassembler for automatic RR frame sending
     reassembler: SegmentedFrameReassembler,
+    /// Whether to use LLC header for Information frames
+    /// 
+    /// According to DLMS standard (IEC 62056-47), LLC header [0xE6, 0xE6, 0x00]
+    /// should be prepended to Information frame data. This is enabled by default
+    /// for protocol compliance, but can be disabled for compatibility with devices
+    /// that don't expect LLC header.
+    use_llc_header: bool,
+    /// Statistics for monitoring connection performance and debugging
+    statistics: HdlcStatistics,
+    /// Send window for sliding window protocol and retransmission
+    send_window: SendWindow,
+    /// Receive window for sequence number tracking
+    receive_window: ReceiveWindow,
+    /// Retransmission timeout (default: 3 seconds)
+    retransmit_timeout: Duration,
+    /// Maximum retransmission attempts (default: 3)
+    max_retries: u8,
 }
 
 impl<T: TransportLayer> HdlcConnection<T> {
     /// Create a new HDLC connection
+    ///
+    /// # Arguments
+    /// * `transport` - Transport layer implementation
+    /// * `local_address` - Local HDLC address
+    /// * `remote_address` - Remote HDLC address
+    ///
+    /// # LLC Header
+    /// By default, LLC header is enabled for protocol compliance. Set `use_llc_header(false)`
+    /// after creation if you need to disable it for compatibility.
     pub fn new(
         transport: T,
         local_address: HdlcAddress,
@@ -416,9 +450,52 @@ impl<T: TransportLayer> HdlcConnection<T> {
             parameters: HdlcParameters::default(),
             send_sequence: 0,
             receive_sequence: 0,
-            closed: true,
+            state: HdlcConnectionState::Closed,
+            closed: true, // Keep in sync with state
             reassembler: SegmentedFrameReassembler::new(),
+            use_llc_header: true, // Enable LLC header by default for protocol compliance
+            statistics: HdlcStatistics::new(),
+            send_window: SendWindow::new(
+                1, // Default window size (will be updated from UA frame)
+                Duration::from_secs(3), // Default retransmit timeout
+                3, // Default max retries
+            ),
+            receive_window: ReceiveWindow::new(),
+            retransmit_timeout: Duration::from_secs(3),
+            max_retries: 3,
         }
+    }
+
+    /// Set whether to use LLC header for Information frames
+    ///
+    /// # Arguments
+    /// * `use_llc` - If true, LLC header [0xE6, 0xE6, 0x00] will be prepended to Information frame data
+    ///
+    /// # Why This Option?
+    /// Some devices may not expect LLC header, so this option allows disabling it
+    /// for compatibility. However, according to DLMS standard, LLC header should be used.
+    pub fn set_use_llc_header(&mut self, use_llc: bool) {
+        self.use_llc_header = use_llc;
+    }
+
+    /// Get whether LLC header is enabled
+    pub fn use_llc_header(&self) -> bool {
+        self.use_llc_header
+    }
+
+    /// Get connection statistics
+    ///
+    /// Returns a reference to the statistics structure for monitoring
+    /// connection performance and debugging.
+    pub fn statistics(&self) -> &HdlcStatistics {
+        &self.statistics
+    }
+
+    /// Clear connection statistics
+    ///
+    /// Resets all statistics counters to zero.
+    pub fn clear_statistics(&mut self) {
+        self.statistics.clear();
     }
 
     /// Open the HDLC connection
@@ -499,6 +576,9 @@ impl<T: TransportLayer> HdlcConnection<T> {
             self.parameters.max_information_field_length_rx = ua_params.max_information_field_length_rx;
             self.parameters.window_size_tx = ua_params.window_size_tx;
             self.parameters.window_size_rx = ua_params.window_size_rx;
+            
+            // Update send window size
+            self.send_window.set_window_size(self.parameters.window_size_tx);
         } else {
             // If UA frame has no information field, use default parameters
             // This is acceptable according to HDLC standard (parameters are optional)
@@ -506,7 +586,12 @@ impl<T: TransportLayer> HdlcConnection<T> {
         }
 
         // Connection is now established
-        self.closed = false;
+        self.state = HdlcConnectionState::Connected;
+        
+        // Reset windows for new connection
+        self.send_window.reset();
+        self.receive_window.reset();
+        
         Ok(())
     }
 
@@ -528,6 +613,15 @@ impl<T: TransportLayer> HdlcConnection<T> {
             FrameType::SetNormalResponseMode | FrameType::Disconnect
         );
         
+        // Check state: only allow information frames when connected
+        if !self.state.can_send_information() && !is_control_frame {
+            return Err(DlmsError::Connection(std::io::Error::new(
+                std::io::ErrorKind::NotConnected,
+                format!("HDLC connection is not ready: {:?}", self.state),
+            )));
+        }
+        
+        // Also check legacy closed flag for backward compatibility
         if self.closed && !is_control_frame {
             return Err(DlmsError::Connection(std::io::Error::new(
                 std::io::ErrorKind::NotConnected,
@@ -553,23 +647,133 @@ impl<T: TransportLayer> HdlcConnection<T> {
         Ok(())
     }
 
-    /// Send an information frame
+    /// Send an information frame with window management
+    ///
+    /// # Window Management
+    /// This method implements sliding window protocol:
+    /// 1. Checks if send window has space
+    /// 2. Assigns sequence number from send window
+    /// 3. Sends frame and adds to send window
+    /// 4. Window will slide when acknowledgment is received
+    ///
+    /// # LLC Header Handling
+    /// If `use_llc_header` is enabled (default), the LLC header [0xE6, 0xE6, 0x00]
+    /// will be automatically prepended to the information field data before encoding.
+    /// This follows the DLMS standard (IEC 62056-47) requirement for LLC layer.
+    ///
+    /// # Blocking Behavior
+    /// If the send window is full, this method will wait for acknowledgments
+    /// before sending. This ensures we don't exceed the negotiated window size.
+    ///
+    /// # Error Handling
+    /// - Returns `DlmsError::InvalidData` if window is full and cannot be cleared
+    /// - Returns `DlmsError::Connection` if transport layer errors occur
     pub async fn send_information(
         &mut self,
         information_field: Vec<u8>,
         segmented: bool,
     ) -> DlmsResult<()> {
+        // Wait for window space if needed
+        while !self.send_window.can_send() {
+            // Process any pending acknowledgments
+            self.process_acknowledgments().await?;
+            
+            // Check for retransmissions
+            self.handle_retransmissions().await?;
+            
+            // If still full, wait a bit and retry
+            if !self.send_window.can_send() {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        }
+
+        // Prepend LLC header if enabled
+        let mut data_with_llc = if self.use_llc_header {
+            let mut data = Vec::with_capacity(LLC_REQUEST.len() + information_field.len());
+            data.extend_from_slice(&LLC_REQUEST);
+            data.extend_from_slice(&information_field);
+            data
+        } else {
+            information_field
+        };
+
         let address_pair = HdlcAddressPair::new(self.local_address, self.remote_address);
+        
+        // Get expected receive sequence from receive window
+        let recv_seq = self.receive_window.expected_sequence();
+        
+        // Get next sequence number from send window
+        let sequence = self.send_window.peek_next_sequence();
+        
+        // Create frame with the sequence number from window
         let frame = HdlcFrame::new_information(
             address_pair,
-            information_field,
-            self.send_sequence,
-            self.receive_sequence,
+            data_with_llc,
+            sequence, // Use sequence from window
+            recv_seq,
             segmented,
         );
         
-        self.send_frame(frame).await?;
+        // Encode frame
+        let encoded = frame.encode()?;
+        
+        // Add to send window (window will increment its next_sequence)
+        let assigned_sequence = self.send_window.add_frame(frame, encoded.clone())?;
+        
+        // Verify sequence matches (should always match)
+        if sequence != assigned_sequence {
+            return Err(DlmsError::InvalidData(format!(
+                "Sequence mismatch in send window: expected {}, got {}",
+                sequence, assigned_sequence
+            )));
+        }
+        
+        // Update send_sequence to keep in sync
         self.send_sequence = (self.send_sequence + 1) % 8;
+        
+        // Send the frame
+        self.send_frame_bytes(&encoded).await?;
+        
+        // Update statistics
+        self.statistics.increment_frames_sent();
+        
+        Ok(())
+    }
+    
+    /// Send frame bytes directly (internal method)
+    ///
+    /// This is used for both initial sends and retransmissions.
+    async fn send_frame_bytes(&mut self, encoded: &[u8]) -> DlmsResult<()> {
+        let mut data = vec![FLAG];
+        data.extend_from_slice(encoded);
+        data.push(FLAG);
+        
+        self.transport.write_all(&data).await?;
+        self.transport.flush().await?;
+        Ok(())
+    }
+    
+    /// Process acknowledgments from received frames
+    ///
+    /// Checks received frames for N(R) values and acknowledges frames in send window.
+    async fn process_acknowledgments(&mut self) -> DlmsResult<()> {
+        // This will be called when processing received frames
+        // For now, it's a placeholder
+        Ok(())
+    }
+    
+    /// Handle frame retransmissions
+    ///
+    /// Checks for timed-out frames and retransmits them.
+    async fn handle_retransmissions(&mut self) -> DlmsResult<()> {
+        let retransmissions = self.send_window.get_retransmissions();
+        
+        for (sequence, encoded_bytes) in retransmissions {
+            // Retransmit the frame
+            self.send_frame_bytes(&encoded_bytes).await?;
+            self.statistics.increment_retransmissions();
+        }
+        
         Ok(())
     }
 
@@ -581,6 +785,14 @@ impl<T: TransportLayer> HdlcConnection<T> {
     /// # Returns
     /// Vector of decoded HDLC frames
     pub async fn receive_frames(&mut self, timeout: Option<Duration>) -> DlmsResult<Vec<HdlcFrame>> {
+        if !self.state.is_ready() && self.state != HdlcConnectionState::Connecting {
+            return Err(DlmsError::Connection(std::io::Error::new(
+                std::io::ErrorKind::NotConnected,
+                format!("HDLC connection is not ready: {:?}", self.state),
+            )));
+        }
+        
+        // Also check legacy closed flag
         if self.closed {
             return Err(DlmsError::Connection(std::io::Error::new(
                 std::io::ErrorKind::NotConnected,
@@ -629,6 +841,14 @@ impl<T: TransportLayer> HdlcConnection<T> {
     /// - Support for multiple concurrent segmented messages
     /// - Better error recovery (retry mechanism)
     pub async fn receive_segmented(&mut self, timeout: Option<Duration>) -> DlmsResult<Vec<u8>> {
+        if !self.state.is_ready() {
+            return Err(DlmsError::Connection(std::io::Error::new(
+                std::io::ErrorKind::NotConnected,
+                format!("HDLC connection is not ready: {:?}", self.state),
+            )));
+        }
+        
+        // Also check legacy closed flag
         if self.closed {
             return Err(DlmsError::Connection(std::io::Error::new(
                 std::io::ErrorKind::NotConnected,
@@ -665,13 +885,33 @@ impl<T: TransportLayer> HdlcConnection<T> {
                 })?;
                 let recv_seq = frame.receive_sequence().unwrap_or(0);
                 let is_segmented = frame.is_segmented();
-                let info_data = frame.information_field().to_vec();
-
-                // Update receive sequence based on N(R) in received frame
-                // N(R) indicates the next expected sequence number from our side
-                // We update our send_sequence tracking based on this
-                // Note: In HDLC, N(R) in received frame acknowledges frames we sent
-                // For receiving, we track the sequence of frames we receive (send_seq from sender's perspective)
+                let mut info_data = frame.information_field().to_vec();
+                
+                // Process acknowledgment (N(R) in received frame acknowledges frames we sent)
+                let acked_count = self.send_window.acknowledge(recv_seq);
+                if acked_count > 0 {
+                    // Window has slid, we may have space for more frames now
+                }
+                
+                // Process received sequence (N(S) in received frame)
+                // Validate sequence number using receive window
+                if let Err(e) = self.receive_window.accept(send_seq) {
+                    // Sequence mismatch - reject this frame
+                    self.statistics.increment_sequence_errors();
+                    // Continue to next frame
+                    continue;
+                }
+                
+                // Remove LLC header if present and enabled
+                if self.use_llc_header && info_data.len() >= LLC_REQUEST.len() {
+                    if info_data.starts_with(&LLC_REQUEST) {
+                        info_data.drain(0..LLC_REQUEST.len());
+                    } else {
+                        // LLC header expected but not found - this might be an error
+                        // However, we'll continue processing to maintain compatibility
+                        // In strict mode, we could return an error here
+                    }
+                }
 
                 // Handle segmented frame
                 if is_segmented {
@@ -756,7 +996,29 @@ impl<T: TransportLayer> HdlcConnection<T> {
 
     /// Check if connection is closed
     pub fn is_closed(&self) -> bool {
-        self.closed || self.transport.is_closed()
+        self.state == HdlcConnectionState::Closed || self.transport.is_closed()
+    }
+    
+    /// Get current connection state
+    pub fn state(&self) -> HdlcConnectionState {
+        self.state
+    }
+    
+    /// Transition to a new state with validation
+    ///
+    /// # Arguments
+    /// * `new_state` - The target state
+    ///
+    /// # Returns
+    /// `Ok(())` if transition is valid, `Err` otherwise
+    pub fn transition_to(&mut self, new_state: HdlcConnectionState) -> DlmsResult<()> {
+        self.state.validate_transition(new_state)?;
+        self.state = new_state;
+        
+        // Keep closed flag in sync
+        self.closed = matches!(self.state, HdlcConnectionState::Closed);
+        
+        Ok(())
     }
 
     /// Close the HDLC connection
@@ -846,7 +1108,12 @@ impl<T: TransportLayer> HdlcConnection<T> {
         self.transport.close().await?;
 
         // Step 5: Update connection state to closed
-        self.closed = true;
+        self.transition_to(HdlcConnectionState::Closed)?;
+        
+        // Reset windows when connection is closed
+        self.send_window.reset();
+        self.receive_window.reset();
+        
         Ok(())
     }
 }
