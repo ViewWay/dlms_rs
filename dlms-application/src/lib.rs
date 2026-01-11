@@ -59,3 +59,7 @@ pub use pdu::{
     InvokeIdAndPriority, CosemAttributeDescriptor, CosemMethodDescriptor,
     SelectiveAccessDescriptor, GetDataResult,
 };
+
+// Re-export error code constants for convenience
+pub use pdu::data_access_result;
+pub use pdu::action_result;

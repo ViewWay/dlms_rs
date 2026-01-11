@@ -70,10 +70,34 @@ pub const MAX_PDU_SIZE: u16 = 65535;
 /// Conformance is a 24-bit bitstring that indicates which DLMS/COSEM features
 /// are supported by the client or server. Each bit represents a specific capability.
 ///
-/// # Bit Layout (from LSB to MSB)
-/// - Bits 0-7: General features (attribute 0 access, multiple references, etc.)
-/// - Bits 8-15: Data access features (block transfer, selective access, etc.)
-/// - Bits 16-23: Service features (action, event notification, etc.)
+/// # Bit Layout (from LSB to MSB, bit 0 = LSB, bit 23 = MSB)
+/// - Bit 0: General protection (reserved for future use)
+/// - Bit 1: General block transfer (reserved for future use)
+/// - Bit 2: Reserved
+/// - Bit 3: Block read
+/// - Bit 4: Block write
+/// - Bit 5: Unconfirmed write
+/// - Bit 6-7: Reserved
+/// - Bit 8: Attribute 0 supported with SET
+/// - Bit 9: Priority management supported
+/// - Bit 10: Attribute 0 supported with GET
+/// - Bit 11: Block transfer with GET or READ
+/// - Bit 12: Block transfer with SET or WRITE
+/// - Bit 13: Block transfer with ACTION
+/// - Bit 14: Multiple references
+/// - Bit 15: Information report
+/// - Bit 16: Data notification
+/// - Bit 17: Reserved
+/// - Bit 18: Parameterized access
+/// - Bit 19: GET
+/// - Bit 20: SET
+/// - Bit 21: Selective access
+/// - Bit 22: Event notification
+/// - Bit 23: ACTION
+///
+/// # Reference
+/// Based on Green Book 8, Table 75 - Conformance bit definitions
+/// and csm_definitions.h from cosemlib reference implementation
 ///
 /// # Why BitString?
 /// Using a BitString allows efficient representation of 24 boolean flags in a
@@ -136,6 +160,219 @@ impl Conformance {
         let mut decoder = AxdrDecoder::new(data);
         let bits = decoder.decode_bit_string()?;
         Self::from_bit_string(bits)
+    }
+
+    /// Set a specific conformance bit
+    ///
+    /// # Arguments
+    /// * `bit` - Bit index (0-23, where 0 is LSB and 23 is MSB)
+    /// * `value` - Value to set (true = supported, false = not supported)
+    ///
+    /// # Returns
+    /// Returns `Err` if bit index is out of range (>= 24)
+    pub fn set_bit(&mut self, bit: usize, value: bool) -> DlmsResult<()> {
+        if bit >= 24 {
+            return Err(DlmsError::InvalidData(format!(
+                "Conformance bit index must be 0-23, got {}",
+                bit
+            )));
+        }
+        self.bits.set_bit(bit, value);
+        Ok(())
+    }
+
+    /// Get a specific conformance bit
+    ///
+    /// # Arguments
+    /// * `bit` - Bit index (0-23, where 0 is LSB and 23 is MSB)
+    ///
+    /// # Returns
+    /// Returns `None` if bit index is out of range, `Some(bool)` otherwise
+    pub fn get_bit(&self, bit: usize) -> Option<bool> {
+        if bit >= 24 {
+            return None;
+        }
+        Some(self.bits.get_bit(bit))
+    }
+
+    /// Set block read capability (bit 3)
+    pub fn set_block_read(&mut self, value: bool) -> DlmsResult<()> {
+        self.set_bit(3, value)
+    }
+
+    /// Get block read capability (bit 3)
+    pub fn block_read(&self) -> bool {
+        self.get_bit(3).unwrap_or(false)
+    }
+
+    /// Set block write capability (bit 4)
+    pub fn set_block_write(&mut self, value: bool) -> DlmsResult<()> {
+        self.set_bit(4, value)
+    }
+
+    /// Get block write capability (bit 4)
+    pub fn block_write(&self) -> bool {
+        self.get_bit(4).unwrap_or(false)
+    }
+
+    /// Set unconfirmed write capability (bit 5)
+    pub fn set_unconfirmed_write(&mut self, value: bool) -> DlmsResult<()> {
+        self.set_bit(5, value)
+    }
+
+    /// Get unconfirmed write capability (bit 5)
+    pub fn unconfirmed_write(&self) -> bool {
+        self.get_bit(5).unwrap_or(false)
+    }
+
+    /// Set attribute 0 supported with SET (bit 8)
+    pub fn set_attribute0_supported_with_set(&mut self, value: bool) -> DlmsResult<()> {
+        self.set_bit(8, value)
+    }
+
+    /// Get attribute 0 supported with SET (bit 8)
+    pub fn attribute0_supported_with_set(&self) -> bool {
+        self.get_bit(8).unwrap_or(false)
+    }
+
+    /// Set priority management supported (bit 9)
+    pub fn set_priority_mgmt_supported(&mut self, value: bool) -> DlmsResult<()> {
+        self.set_bit(9, value)
+    }
+
+    /// Get priority management supported (bit 9)
+    pub fn priority_mgmt_supported(&self) -> bool {
+        self.get_bit(9).unwrap_or(false)
+    }
+
+    /// Set attribute 0 supported with GET (bit 10)
+    pub fn set_attribute0_supported_with_get(&mut self, value: bool) -> DlmsResult<()> {
+        self.set_bit(10, value)
+    }
+
+    /// Get attribute 0 supported with GET (bit 10)
+    pub fn attribute0_supported_with_get(&self) -> bool {
+        self.get_bit(10).unwrap_or(false)
+    }
+
+    /// Set block transfer with GET or READ (bit 11)
+    pub fn set_block_transfer_with_get_or_read(&mut self, value: bool) -> DlmsResult<()> {
+        self.set_bit(11, value)
+    }
+
+    /// Get block transfer with GET or READ (bit 11)
+    pub fn block_transfer_with_get_or_read(&self) -> bool {
+        self.get_bit(11).unwrap_or(false)
+    }
+
+    /// Set block transfer with SET or WRITE (bit 12)
+    pub fn set_block_transfer_with_set_or_write(&mut self, value: bool) -> DlmsResult<()> {
+        self.set_bit(12, value)
+    }
+
+    /// Get block transfer with SET or WRITE (bit 12)
+    pub fn block_transfer_with_set_or_write(&self) -> bool {
+        self.get_bit(12).unwrap_or(false)
+    }
+
+    /// Set block transfer with ACTION (bit 13)
+    pub fn set_block_transfer_with_action(&mut self, value: bool) -> DlmsResult<()> {
+        self.set_bit(13, value)
+    }
+
+    /// Get block transfer with ACTION (bit 13)
+    pub fn block_transfer_with_action(&self) -> bool {
+        self.get_bit(13).unwrap_or(false)
+    }
+
+    /// Set multiple references capability (bit 14)
+    pub fn set_multiple_references(&mut self, value: bool) -> DlmsResult<()> {
+        self.set_bit(14, value)
+    }
+
+    /// Get multiple references capability (bit 14)
+    pub fn multiple_references(&self) -> bool {
+        self.get_bit(14).unwrap_or(false)
+    }
+
+    /// Set information report capability (bit 15)
+    pub fn set_information_report(&mut self, value: bool) -> DlmsResult<()> {
+        self.set_bit(15, value)
+    }
+
+    /// Get information report capability (bit 15)
+    pub fn information_report(&self) -> bool {
+        self.get_bit(15).unwrap_or(false)
+    }
+
+    /// Set data notification capability (bit 16)
+    pub fn set_data_notification(&mut self, value: bool) -> DlmsResult<()> {
+        self.set_bit(16, value)
+    }
+
+    /// Get data notification capability (bit 16)
+    pub fn data_notification(&self) -> bool {
+        self.get_bit(16).unwrap_or(false)
+    }
+
+    /// Set parameterized access capability (bit 18)
+    pub fn set_parameterized_access(&mut self, value: bool) -> DlmsResult<()> {
+        self.set_bit(18, value)
+    }
+
+    /// Get parameterized access capability (bit 18)
+    pub fn parameterized_access(&self) -> bool {
+        self.get_bit(18).unwrap_or(false)
+    }
+
+    /// Set GET capability (bit 19)
+    pub fn set_get(&mut self, value: bool) -> DlmsResult<()> {
+        self.set_bit(19, value)
+    }
+
+    /// Get GET capability (bit 19)
+    pub fn get(&self) -> bool {
+        self.get_bit(19).unwrap_or(false)
+    }
+
+    /// Set SET capability (bit 20)
+    pub fn set_set(&mut self, value: bool) -> DlmsResult<()> {
+        self.set_bit(20, value)
+    }
+
+    /// Get SET capability (bit 20)
+    pub fn set(&self) -> bool {
+        self.get_bit(20).unwrap_or(false)
+    }
+
+    /// Set selective access capability (bit 21)
+    pub fn set_selective_access(&mut self, value: bool) -> DlmsResult<()> {
+        self.set_bit(21, value)
+    }
+
+    /// Get selective access capability (bit 21)
+    pub fn selective_access(&self) -> bool {
+        self.get_bit(21).unwrap_or(false)
+    }
+
+    /// Set event notification capability (bit 22)
+    pub fn set_event_notification(&mut self, value: bool) -> DlmsResult<()> {
+        self.set_bit(22, value)
+    }
+
+    /// Get event notification capability (bit 22)
+    pub fn event_notification(&self) -> bool {
+        self.get_bit(22).unwrap_or(false)
+    }
+
+    /// Set ACTION capability (bit 23)
+    pub fn set_action(&mut self, value: bool) -> DlmsResult<()> {
+        self.set_bit(23, value)
+    }
+
+    /// Get ACTION capability (bit 23)
+    pub fn action(&self) -> bool {
+        self.get_bit(23).unwrap_or(false)
     }
 }
 
@@ -874,25 +1111,75 @@ impl SelectiveAccessDescriptor {
 /// failure cases, reducing code duplication and improving type safety.
 ///
 /// # Data Access Result Codes
-/// Common error codes:
+/// Based on Green Book 8 and csm_definitions.h reference implementation:
 /// - 0: Success (should use Data variant instead)
 /// - 1: Hardware fault
 /// - 2: Temporary failure
 /// - 3: Read-write denied
 /// - 4: Object undefined
-/// - 5: Object unavailable
-/// - 9: Type unmatched
-/// - 11: Scope of access violated
-/// - 12: Data block unavailable
-/// - 13: Long get aborted
-/// - 14: No long get in progress
-/// - 15: Other (vendor-specific)
+/// - 5-8: Reserved
+/// - 9: Object class inconsistent
+/// - 10: Reserved
+/// - 11: Object unavailable
+/// - 12: Type unmatched
+/// - 13: Scope of access violated
+/// - 14: Data block unavailable
+/// - 15: Long GET aborted
+/// - 16: No long GET in progress
+/// - 17: Long SET aborted
+/// - 18: No long SET in progress
+/// - 19: Data block number invalid
+/// - 20-249: Reserved
+/// - 250: Other reason
+/// - 251-254: Reserved
+/// - 255: Not set
 #[derive(Debug, Clone, PartialEq)]
 pub enum GetDataResult {
     /// Successfully retrieved data
     Data(DataObject),
     /// Data access error code
     DataAccessResult(u8),
+}
+
+/// Data Access Result error codes
+///
+/// Based on Green Book 8 and csm_definitions.h reference implementation.
+/// These constants provide type-safe error code values for DataAccessResult.
+pub mod data_access_result {
+    /// Success (should use Data variant instead)
+    pub const SUCCESS: u8 = 0;
+    /// Hardware fault
+    pub const HARDWARE_FAULT: u8 = 1;
+    /// Temporary failure
+    pub const TEMPORARY_FAILURE: u8 = 2;
+    /// Read-write denied
+    pub const READ_WRITE_DENIED: u8 = 3;
+    /// Object undefined
+    pub const OBJECT_UNDEFINED: u8 = 4;
+    /// Object class inconsistent
+    pub const OBJECT_CLASS_INCONSISTENT: u8 = 9;
+    /// Object unavailable
+    pub const OBJECT_UNAVAILABLE: u8 = 11;
+    /// Type unmatched
+    pub const TYPE_UNMATCHED: u8 = 12;
+    /// Scope of access violated
+    pub const SCOPE_OF_ACCESS_VIOLATED: u8 = 13;
+    /// Data block unavailable
+    pub const DATA_BLOCK_UNAVAILABLE: u8 = 14;
+    /// Long GET aborted
+    pub const LONG_GET_ABORTED: u8 = 15;
+    /// No long GET in progress
+    pub const NO_LONG_GET_IN_PROGRESS: u8 = 16;
+    /// Long SET aborted
+    pub const LONG_SET_ABORTED: u8 = 17;
+    /// No long SET in progress
+    pub const NO_LONG_SET_IN_PROGRESS: u8 = 18;
+    /// Data block number invalid
+    pub const DATA_BLOCK_NUMBER_INVALID: u8 = 19;
+    /// Other reason
+    pub const OTHER_REASON: u8 = 250;
+    /// Not set
+    pub const NOT_SET: u8 = 255;
 }
 
 impl GetDataResult {
@@ -903,6 +1190,20 @@ impl GetDataResult {
 
     /// Create a new GetDataResult with error code
     pub fn new_error(code: u8) -> Self {
+        Self::DataAccessResult(code)
+    }
+
+    /// Create a new GetDataResult with a standard error code
+    ///
+    /// # Arguments
+    /// * `code` - One of the constants from `data_access_result` module
+    ///
+    /// # Example
+    /// ```rust,no_run
+    /// use dlms_application::pdu::{GetDataResult, data_access_result};
+    /// let result = GetDataResult::new_standard_error(data_access_result::HARDWARE_FAULT);
+    /// ```
+    pub fn new_standard_error(code: u8) -> Self {
         Self::DataAccessResult(code)
     }
 
@@ -926,6 +1227,37 @@ impl GetDataResult {
             _ => None,
         }
     }
+
+    /// Get a human-readable description of the error code
+    ///
+    /// # Returns
+    /// A string describing the error, or "Unknown error code" if the code is not recognized
+    pub fn error_description(&self) -> &'static str {
+        match self {
+            Self::Data(_) => "Success",
+            Self::DataAccessResult(code) => match *code {
+                data_access_result::SUCCESS => "Success",
+                data_access_result::HARDWARE_FAULT => "Hardware fault",
+                data_access_result::TEMPORARY_FAILURE => "Temporary failure",
+                data_access_result::READ_WRITE_DENIED => "Read-write denied",
+                data_access_result::OBJECT_UNDEFINED => "Object undefined",
+                data_access_result::OBJECT_CLASS_INCONSISTENT => "Object class inconsistent",
+                data_access_result::OBJECT_UNAVAILABLE => "Object unavailable",
+                data_access_result::TYPE_UNMATCHED => "Type unmatched",
+                data_access_result::SCOPE_OF_ACCESS_VIOLATED => "Scope of access violated",
+                data_access_result::DATA_BLOCK_UNAVAILABLE => "Data block unavailable",
+                data_access_result::LONG_GET_ABORTED => "Long GET aborted",
+                data_access_result::NO_LONG_GET_IN_PROGRESS => "No long GET in progress",
+                data_access_result::LONG_SET_ABORTED => "Long SET aborted",
+                data_access_result::NO_LONG_SET_IN_PROGRESS => "No long SET in progress",
+                data_access_result::DATA_BLOCK_NUMBER_INVALID => "Data block number invalid",
+                data_access_result::OTHER_REASON => "Other reason",
+                data_access_result::NOT_SET => "Not set",
+                _ => "Unknown error code",
+            },
+        }
+    }
+}
 
     /// Encode to A-XDR format
     ///
@@ -2135,6 +2467,20 @@ impl SetDataResult {
         Self::DataAccessResult(code)
     }
 
+    /// Create a new SetDataResult with a standard error code
+    ///
+    /// # Arguments
+    /// * `code` - One of the constants from `data_access_result` module
+    ///
+    /// # Example
+    /// ```rust,no_run
+    /// use dlms_application::pdu::{SetDataResult, data_access_result};
+    /// let result = SetDataResult::new_standard_error(data_access_result::HARDWARE_FAULT);
+    /// ```
+    pub fn new_standard_error(code: u8) -> Self {
+        Self::DataAccessResult(code)
+    }
+
     /// Check if this is a success result
     pub fn is_success(&self) -> bool {
         matches!(self, Self::Success)
@@ -2145,6 +2491,36 @@ impl SetDataResult {
         match self {
             Self::DataAccessResult(code) => Some(*code),
             _ => None,
+        }
+    }
+
+    /// Get a human-readable description of the error code
+    ///
+    /// # Returns
+    /// A string describing the error, or "Unknown error code" if the code is not recognized
+    pub fn error_description(&self) -> &'static str {
+        match self {
+            Self::Success => "Success",
+            Self::DataAccessResult(code) => match *code {
+                data_access_result::SUCCESS => "Success",
+                data_access_result::HARDWARE_FAULT => "Hardware fault",
+                data_access_result::TEMPORARY_FAILURE => "Temporary failure",
+                data_access_result::READ_WRITE_DENIED => "Read-write denied",
+                data_access_result::OBJECT_UNDEFINED => "Object undefined",
+                data_access_result::OBJECT_CLASS_INCONSISTENT => "Object class inconsistent",
+                data_access_result::OBJECT_UNAVAILABLE => "Object unavailable",
+                data_access_result::TYPE_UNMATCHED => "Type unmatched",
+                data_access_result::SCOPE_OF_ACCESS_VIOLATED => "Scope of access violated",
+                data_access_result::DATA_BLOCK_UNAVAILABLE => "Data block unavailable",
+                data_access_result::LONG_GET_ABORTED => "Long GET aborted",
+                data_access_result::NO_LONG_GET_IN_PROGRESS => "No long GET in progress",
+                data_access_result::LONG_SET_ABORTED => "Long SET aborted",
+                data_access_result::NO_LONG_SET_IN_PROGRESS => "No long SET in progress",
+                data_access_result::DATA_BLOCK_NUMBER_INVALID => "Data block number invalid",
+                data_access_result::OTHER_REASON => "Other reason",
+                data_access_result::NOT_SET => "Not set",
+                _ => "Unknown error code",
+            },
         }
     }
 
@@ -2729,6 +3105,20 @@ impl ActionResult {
         Self::DataAccessResult(code)
     }
 
+    /// Create a new ActionResult with a standard error code
+    ///
+    /// # Arguments
+    /// * `code` - One of the constants from `action_result` module
+    ///
+    /// # Example
+    /// ```rust,no_run
+    /// use dlms_application::pdu::{ActionResult, action_result};
+    /// let result = ActionResult::new_standard_error(action_result::HARDWARE_FAULT);
+    /// ```
+    pub fn new_standard_error(code: u8) -> Self {
+        Self::DataAccessResult(code)
+    }
+
     /// Check if this is a success result
     pub fn is_success(&self) -> bool {
         matches!(self, Self::Success | Self::SuccessWithData(_))
@@ -2749,6 +3139,35 @@ impl ActionResult {
             _ => None,
         }
     }
+
+    /// Get a human-readable description of the error code
+    ///
+    /// # Returns
+    /// A string describing the error, or "Unknown error code" if the code is not recognized
+    pub fn error_description(&self) -> &'static str {
+        match self {
+            Self::Success => "Success",
+            Self::SuccessWithData(_) => "Success with data",
+            Self::DataAccessResult(code) => match *code {
+                action_result::SUCCESS => "Success",
+                action_result::HARDWARE_FAULT => "Hardware fault",
+                action_result::TEMPORARY_FAILURE => "Temporary failure",
+                action_result::READ_WRITE_DENIED => "Read-write denied",
+                action_result::OBJECT_UNDEFINED => "Object undefined",
+                action_result::OBJECT_CLASS_INCONSISTENT => "Object class inconsistent",
+                action_result::OBJECT_UNAVAILABLE => "Object unavailable",
+                action_result::TYPE_UNMATCHED => "Type unmatched",
+                action_result::SCOPE_OF_ACCESS_VIOLATED => "Scope of access violated",
+                action_result::DATA_BLOCK_UNAVAILABLE => "Data block unavailable",
+                action_result::LONG_ACTION_ABORTED => "Long ACTION aborted",
+                action_result::NO_LONG_ACTION_IN_PROGRESS => "No long ACTION in progress",
+                action_result::OTHER_REASON => "Other reason",
+                action_result::NOT_SET => "Not set",
+                _ => "Unknown error code",
+            },
+        }
+    }
+}
 
     /// Encode to A-XDR format
     ///
