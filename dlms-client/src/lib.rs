@@ -6,19 +6,19 @@
 //! # TODO
 //!
 //! ## 连接管理
-//! - [ ] 连接构建器（Builder）模式实现
-//! - [ ] TCP 连接构建器
-//! - [ ] Serial 连接构建器
-//! - [ ] 逻辑名称（LN）连接实现
+//! - [x] 连接构建器（Builder）模式实现
+//! - [x] TCP 连接构建器（基础实现）
+//! - [x] Serial 连接构建器（基础实现）
+//! - [x] 逻辑名称（LN）连接实现（基础结构完成，会话层集成待完成）
 //! - [ ] 短名称（SN）连接实现
-//! - [ ] 连接建立流程
-//! - [ ] 连接关闭和清理
-//! - [ ] 连接状态管理
+//! - [ ] 连接建立流程（完整实现，包括传输层、会话层、应用层）
+//! - [x] 连接关闭和清理（基础实现）
+//! - [x] 连接状态管理
 //!
 //! ## 客户端功能
-//! - [ ] GET 操作实现
-//! - [ ] SET 操作实现
-//! - [ ] ACTION 操作实现
+//! - [x] GET 操作实现（基础框架完成，需要完整会话层支持）
+//! - [x] SET 操作实现（基础框架完成，需要完整会话层支持）
+//! - [x] ACTION 操作实现（基础框架完成，需要完整会话层支持）
 //! - [ ] 对象浏览功能
 //! - [ ] 数据读取功能
 //! - [ ] 数据写入功能
@@ -35,4 +35,4 @@
 
 pub mod connection;
 
-pub use connection::{Connection, ConnectionState, LnConnection, LnConnectionConfig};
+pub use connection::{Connection, ConnectionState, LnConnection, LnConnectionConfig, ConnectionBuilder};

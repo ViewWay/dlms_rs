@@ -8,13 +8,16 @@
 //! LN connections integrate multiple protocol layers:
 //! - **Transport Layer**: TCP, UDP, or Serial
 //! - **Session Layer**: HDLC or Wrapper
-//! - **Security Layer**: Encryption and authentication
+//! - **Security Layer**: Encryption and authentication (future)
 //! - **Application Layer**: PDU encoding/decoding with LN addressing
 //!
 //! # Connection Flow
 //!
+//! According to dlms-docs/dlms/cosem连接过程.txt:
 //! 1. **Transport Open**: Open TCP/Serial connection
-//! 2. **Session Open**: Establish HDLC/Wrapper session (SNRM/UA or Wrapper handshake)
+//! 2. **Session Open**: Establish HDLC/Wrapper session
+//!    - HDLC: SNRM -> UA (Set Normal Response Mode handshake)
+//!    - Wrapper: Direct open (no handshake needed)
 //! 3. **Application Initiate**: Send InitiateRequest, receive InitiateResponse
 //! 4. **Ready**: Connection is ready for GET/SET/ACTION operations
 //!
@@ -28,11 +31,12 @@
 //! # Usage Example
 //!
 //! ```rust,no_run
-//! use dlms_client::connection::{Connection, LnConnection};
+//! use dlms_client::connection::{Connection, LnConnection, LnConnectionConfig};
 //! use dlms_core::ObisCode;
 //!
 //! // Create connection
-//! let mut conn = LnConnection::new(...)?;
+//! let config = LnConnectionConfig::default();
+//! let mut conn = LnConnection::new(config);
 //!
 //! // Open connection
 //! conn.open().await?;
@@ -52,13 +56,25 @@ use dlms_application::pdu::{
     ActionRequest, ActionResponse, CosemAttributeDescriptor, CosemMethodDescriptor,
     InvokeIdAndPriority, Conformance,
 };
+use dlms_application::addressing::LogicalNameReference;
 use dlms_core::{DlmsError, DlmsResult, ObisCode, DataObject};
 use dlms_session::hdlc::{HdlcConnection, HdlcAddress};
 use dlms_session::wrapper::WrapperSession;
-use dlms_transport::{TcpTransport, SerialTransport, TransportLayer};
-use dlms_security::{SecuritySuite, SecurityPolicy};
-use dlms_asn1::iso_acse::{AARQApdu, AAREApdu};
+use dlms_transport::{TcpTransport, SerialTransport, TransportLayer, StreamAccessor};
+use dlms_security::SecuritySuite;
 use std::time::Duration;
+
+/// Session layer type
+///
+/// Distinguishes between HDLC and Wrapper session layers, which have different
+/// connection establishment procedures and data framing.
+#[derive(Debug)]
+enum SessionLayer {
+    /// HDLC session (for Serial transport)
+    Hdlc(Box<dyn std::any::Any + Send + Sync>),
+    /// Wrapper session (for TCP/UDP transport)
+    Wrapper(Box<dyn std::any::Any + Send + Sync>),
+}
 
 /// Logical Name (LN) connection configuration
 ///
@@ -66,15 +82,15 @@ use std::time::Duration;
 /// transport settings, session parameters, and security configuration.
 #[derive(Debug, Clone)]
 pub struct LnConnectionConfig {
-    /// Local HDLC address (for HDLC sessions)
+    /// Local HDLC address (for HDLC sessions, required if using HDLC)
     pub local_address: Option<HdlcAddress>,
-    /// Remote HDLC address (for HDLC sessions)
+    /// Remote HDLC address (for HDLC sessions, required if using HDLC)
     pub remote_address: Option<HdlcAddress>,
-    /// Client ID (for Wrapper sessions)
+    /// Client ID (for Wrapper sessions, required if using Wrapper)
     pub client_id: Option<u16>,
-    /// Logical device ID (for Wrapper sessions)
+    /// Logical device ID (for Wrapper sessions, required if using Wrapper)
     pub logical_device_id: Option<u16>,
-    /// Security suite configuration
+    /// Security suite configuration (optional, for future use)
     pub security_suite: Option<SecuritySuite>,
     /// Conformance bits (client capabilities)
     pub conformance: Conformance,
@@ -89,8 +105,8 @@ impl Default for LnConnectionConfig {
         Self {
             local_address: None,
             remote_address: None,
-            client_id: None,
-            logical_device_id: None,
+            client_id: Some(0x10),
+            logical_device_id: Some(0x01),
             security_suite: None,
             conformance: Conformance::default(),
             max_pdu_size: 1024,
@@ -130,10 +146,8 @@ impl Default for LnConnectionConfig {
 pub struct LnConnection {
     /// Connection state
     state: ConnectionState,
-    /// HDLC connection (if using HDLC)
-    hdlc_connection: Option<Box<dyn std::any::Any + Send + Sync>>,
-    /// Wrapper session (if using Wrapper)
-    wrapper_session: Option<Box<dyn std::any::Any + Send + Sync>>,
+    /// Session layer (HDLC or Wrapper)
+    session: Option<SessionLayer>,
     /// GET service
     get_service: GetService,
     /// SET service
@@ -149,15 +163,17 @@ pub struct LnConnection {
 }
 
 impl LnConnection {
-    /// Create a new LN connection with default configuration
+    /// Create a new LN connection with configuration
+    ///
+    /// # Arguments
+    /// * `config` - Connection configuration
     ///
     /// # Returns
     /// A new LN connection in `Closed` state
     pub fn new(config: LnConnectionConfig) -> Self {
         Self {
             state: ConnectionState::Closed,
-            hdlc_connection: None,
-            wrapper_session: None,
+            session: None,
             get_service: GetService::new(),
             set_service: SetService::new(),
             action_service: ActionService::new(),
@@ -167,66 +183,109 @@ impl LnConnection {
         }
     }
 
-    /// Create a new LN connection with TCP transport
+    /// Send data through the session layer
     ///
     /// # Arguments
-    /// * `host` - Server hostname or IP address
-    /// * `port` - Server port
-    /// * `config` - Connection configuration
+    /// * `data` - Data to send
     ///
     /// # Returns
-    /// A new LN connection configured for TCP transport
+    /// Ok(()) if successful
     ///
-    /// # Note
-    /// This is a convenience method. For more control, use the builder pattern.
-    pub fn new_tcp(host: String, port: u16, config: LnConnectionConfig) -> DlmsResult<Self> {
-        // TODO: Implement TCP transport creation
-        Ok(Self::new(config))
+    /// # Errors
+    /// Returns error if session is not established or sending fails
+    async fn send_session_data(&mut self, data: &[u8]) -> DlmsResult<()> {
+        match &mut self.session {
+            Some(SessionLayer::Hdlc(_)) => {
+                // TODO: Implement HDLC sending
+                // For now, return error as HDLC connection needs proper type handling
+                Err(DlmsError::InvalidData(
+                    "HDLC session sending not yet fully implemented".to_string(),
+                ))
+            }
+            Some(SessionLayer::Wrapper(wrapper)) => {
+                // Cast to WrapperSession<TcpTransport> or WrapperSession<SerialTransport>
+                // This is a limitation of the current design - we need to use generics or
+                // a trait object approach
+                // TODO: Refactor to use proper trait-based session layer
+                Err(DlmsError::InvalidData(
+                    "Wrapper session sending needs proper type handling".to_string(),
+                ))
+            }
+            None => Err(DlmsError::Connection(std::io::Error::new(
+                std::io::ErrorKind::NotConnected,
+                "Session layer is not established",
+            ))),
+        }
     }
 
-    /// Create a new LN connection with Serial transport
+    /// Receive data from the session layer
     ///
     /// # Arguments
-    /// * `port_name` - Serial port name (e.g., "/dev/ttyUSB0" or "COM1")
-    /// * `baud_rate` - Baud rate
-    /// * `config` - Connection configuration
+    /// * `timeout` - Optional timeout for receiving
     ///
     /// # Returns
-    /// A new LN connection configured for Serial transport
+    /// Received data
     ///
-    /// # Note
-    /// This is a convenience method. For more control, use the builder pattern.
-    pub fn new_serial(
-        port_name: String,
-        baud_rate: u32,
-        config: LnConnectionConfig,
-    ) -> DlmsResult<Self> {
-        // TODO: Implement Serial transport creation
-        Ok(Self::new(config))
+    /// # Errors
+    /// Returns error if session is not established or receiving fails
+    async fn receive_session_data(
+        &mut self,
+        timeout: Option<Duration>,
+    ) -> DlmsResult<Vec<u8>> {
+        match &mut self.session {
+            Some(SessionLayer::Hdlc(_)) => {
+                // TODO: Implement HDLC receiving
+                Err(DlmsError::InvalidData(
+                    "HDLC session receiving not yet fully implemented".to_string(),
+                ))
+            }
+            Some(SessionLayer::Wrapper(_)) => {
+                // TODO: Implement Wrapper receiving
+                Err(DlmsError::InvalidData(
+                    "Wrapper session receiving needs proper type handling".to_string(),
+                ))
+            }
+            None => Err(DlmsError::Connection(std::io::Error::new(
+                std::io::ErrorKind::NotConnected,
+                "Session layer is not established",
+            ))),
+        }
     }
 }
 
 #[async_trait::async_trait]
 impl Connection for LnConnection {
     async fn open(&mut self) -> DlmsResult<()> {
-        // TODO: Implement connection opening
-        // 1. Open transport layer
-        // 2. Open session layer (HDLC or Wrapper)
-        // 3. Send InitiateRequest
-        // 4. Receive InitiateResponse
-        // 5. Update state to Ready
+        if !matches!(self.state, ConnectionState::Closed) {
+            return Err(DlmsError::Connection(std::io::Error::new(
+                std::io::ErrorKind::AlreadyConnected,
+                "Connection is already open",
+            )));
+        }
+
+        // TODO: Implement full connection opening
+        // 1. Determine session type (HDLC vs Wrapper) based on config
+        // 2. Create and open transport layer
+        // 3. Create and open session layer
+        // 4. Send InitiateRequest
+        // 5. Receive InitiateResponse
+        // 6. Update state to Ready
+
+        // For now, return error indicating implementation needed
         Err(DlmsError::InvalidData(
-            "LnConnection::open() not yet implemented".to_string(),
+            "LnConnection::open() full implementation in progress".to_string(),
         ))
     }
 
     async fn close(&mut self) -> DlmsResult<()> {
-        // TODO: Implement connection closing
+        // TODO: Implement full connection closing
         // 1. Send Release Request (if needed)
         // 2. Close session layer (DISC/DM/UA for HDLC)
         // 3. Close transport layer
         // 4. Update state to Closed
+
         self.state = ConnectionState::Closed;
+        self.session = None;
         Ok(())
     }
 
@@ -247,15 +306,35 @@ impl Connection for LnConnection {
             )));
         }
 
-        // TODO: Implement GET operation
-        // 1. Create CosemAttributeDescriptor with LN addressing
-        // 2. Create GetRequest using GetService
-        // 3. Encode and send request
-        // 4. Receive and decode response
-        // 5. Process response using GetService
-        Err(DlmsError::InvalidData(
-            "LnConnection::get_attribute() not yet implemented".to_string(),
-        ))
+        // Create attribute descriptor with LN addressing
+        let attribute_descriptor = CosemAttributeDescriptor {
+            class_id,
+            instance_id: LogicalNameReference::new(obis_code),
+            attribute_id,
+        };
+
+        // Create GET request using GetService
+        let invoke_id = self.get_service.next_invoke_id();
+        let invoke_id_and_priority = InvokeIdAndPriority::new(invoke_id, false)
+            .map_err(|e| DlmsError::InvalidData(format!("Invalid invoke ID: {}", e)))?;
+
+        let request = GetRequest::new_normal(
+            invoke_id_and_priority,
+            attribute_descriptor,
+            None, // No selective access
+        );
+
+        // Encode request
+        let request_bytes = request.encode()?;
+
+        // Send request and receive response
+        let response_bytes = self.send_request(&request_bytes, Some(Duration::from_secs(30))).await?;
+
+        // Decode response
+        let response = GetResponse::decode(&response_bytes)?;
+
+        // Process response using GetService
+        self.get_service.process_response(&response)
     }
 
     async fn set_attribute(
@@ -272,10 +351,34 @@ impl Connection for LnConnection {
             )));
         }
 
-        // TODO: Implement SET operation
-        Err(DlmsError::InvalidData(
-            "LnConnection::set_attribute() not yet implemented".to_string(),
-        ))
+        // Create attribute descriptor with LN addressing
+        let ln_ref = LogicalNameReference::new(class_id, obis_code, attribute_id)?;
+        let attribute_descriptor = CosemAttributeDescriptor::LogicalName(ln_ref);
+
+        // Create SET request using SetService
+        let invoke_id = self.set_service.next_invoke_id();
+        let invoke_id_and_priority = InvokeIdAndPriority::new(invoke_id, false)
+            .map_err(|e| DlmsError::InvalidData(format!("Invalid invoke ID: {}", e)))?;
+
+        let request = SetRequest::new_normal(
+            invoke_id_and_priority,
+            attribute_descriptor,
+            None, // No selective access
+            value,
+        );
+
+        // Encode request
+        let request_bytes = request.encode()?;
+
+        // Send request and receive response
+        let response_bytes = self.send_request(&request_bytes, Some(Duration::from_secs(30))).await?;
+
+        // Decode response
+        let response = SetResponse::decode(&response_bytes)?;
+
+        // Process response using SetService
+        self.set_service.process_response(&response)?;
+        Ok(())
     }
 
     async fn invoke_method(
@@ -292,10 +395,32 @@ impl Connection for LnConnection {
             )));
         }
 
-        // TODO: Implement ACTION operation
-        Err(DlmsError::InvalidData(
-            "LnConnection::invoke_method() not yet implemented".to_string(),
-        ))
+        // Create method descriptor with LN addressing
+        let ln_ref = LogicalNameReference::new(class_id, obis_code, method_id)?;
+        let method_descriptor = CosemMethodDescriptor::LogicalName(ln_ref);
+
+        // Create ACTION request using ActionService
+        let invoke_id = self.action_service.next_invoke_id();
+        let invoke_id_and_priority = InvokeIdAndPriority::new(invoke_id, false)
+            .map_err(|e| DlmsError::InvalidData(format!("Invalid invoke ID: {}", e)))?;
+
+        let request = ActionRequest::new_normal(
+            invoke_id_and_priority,
+            method_descriptor,
+            parameters,
+        );
+
+        // Encode request
+        let request_bytes = request.encode()?;
+
+        // Send request and receive response
+        let response_bytes = self.send_request(&request_bytes, Some(Duration::from_secs(30))).await?;
+
+        // Decode response
+        let response = ActionResponse::decode(&response_bytes)?;
+
+        // Process response using ActionService
+        self.action_service.process_response(&response)
     }
 
     async fn send_request(
@@ -310,9 +435,10 @@ impl Connection for LnConnection {
             )));
         }
 
-        // TODO: Implement raw PDU sending
-        Err(DlmsError::InvalidData(
-            "LnConnection::send_request() not yet implemented".to_string(),
-        ))
+        // Send request through session layer
+        self.send_session_data(request).await?;
+
+        // Receive response through session layer
+        self.receive_session_data(timeout).await
     }
 }
