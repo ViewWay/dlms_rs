@@ -21,6 +21,7 @@
 use crate::pdu::{
     SetRequest, SetRequestNormal, SetResponse, SetResponseNormal, SetDataResult,
     CosemAttributeDescriptor, SelectiveAccessDescriptor, InvokeIdAndPriority,
+    data_access_result,
 };
 use dlms_core::{DlmsError, DlmsResult, DataObject};
 
@@ -96,17 +97,40 @@ impl SetService {
     ///
     /// # Returns
     /// Ok(()) if successful, Err if failed
+    ///
+    /// # Errors
+    /// Returns error with a human-readable description of the error code if the SET operation failed
     pub fn process_response(response: &SetResponse) -> DlmsResult<()> {
         match response {
             SetResponse::Normal(normal) => {
                 match &normal.result {
                     SetDataResult::Success => Ok(()),
-                    SetDataResult::DataAccessResult(code) => Err(DlmsError::InvalidData(format!(
-                        "SET operation failed with error code: {}",
-                        code
-                    ))),
+                    SetDataResult::DataAccessResult(code) => {
+                        let description = normal.result.error_description();
+                        Err(DlmsError::InvalidData(format!(
+                            "SET operation failed with error code {} ({})",
+                            code,
+                            description
+                        )))
+                    }
                 }
             }
+            _ => Err(DlmsError::InvalidData(
+                "Expected Normal SET response".to_string(),
+            )),
+        }
+    }
+
+    /// Process a SET response and return the full result
+    ///
+    /// # Arguments
+    /// * `response` - The SET response PDU
+    ///
+    /// # Returns
+    /// The `SetDataResult` containing either success or error code
+    pub fn process_response_result(response: &SetResponse) -> DlmsResult<SetDataResult> {
+        match response {
+            SetResponse::Normal(normal) => Ok(normal.result.clone()),
             _ => Err(DlmsError::InvalidData(
                 "Expected Normal SET response".to_string(),
             )),

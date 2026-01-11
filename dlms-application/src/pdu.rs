@@ -988,7 +988,10 @@ impl CosemAttributeDescriptor {
         let instance_bytes = decoder.decode_octet_string()?;
 
         // 3. attribute_id (Integer8)
-        let attribute_id = decoder.decode_i8()? as u8;
+        // Note: decode_i8 returns i8, but attribute_id is u8. We cast the signed value to unsigned.
+        // This is safe because attribute IDs are always positive values (0-255 range).
+        let attribute_id_i8: i8 = decoder.decode_i8()?;
+        let attribute_id: u8 = attribute_id_i8 as u8;
 
         // Determine addressing method by instance_id length
         match instance_bytes.len() {
@@ -1257,7 +1260,6 @@ impl GetDataResult {
             },
         }
     }
-}
 
     /// Encode to A-XDR format
     ///
@@ -1265,24 +1267,30 @@ impl GetDataResult {
     /// 1. Choice tag (Enumerate: 0 = Data, 1 = DataAccessResult)
     /// 2. Value (DataObject for Data, Unsigned8 for DataAccessResult)
     ///
-    /// # Why This Encoding?
-    /// A-XDR CHOICE types are encoded as: tag (enumeration) + value.
-    /// The tag identifies which variant is present.
+    /// # A-XDR CHOICE Encoding Order
+    /// According to A-XDR standard, CHOICE types are encoded as: tag + value.
+    /// The tag comes first to identify which variant is present, followed by the value.
+    ///
+    /// # Why This Order?
+    /// - **Tag First**: Allows the decoder to know which variant to expect before reading the value
+    /// - **Standard Compliance**: Matches A-XDR standard specification
+    /// - **Consistency**: Matches the decode order (tag first, then value) and other result types
+    /// - **Roundtrip Compatibility**: Ensures encode/decode roundtrip works correctly
     pub fn encode(&self) -> DlmsResult<Vec<u8>> {
         let mut encoder = AxdrEncoder::new();
 
         match self {
             GetDataResult::Data(data) => {
-                // Encode value first (A-XDR reverse order)
-                encoder.encode_data_object(data)?;
-                // Encode choice tag (0 = Data)
+                // Encode choice tag first (0 = Data)
                 encoder.encode_u8(0)?;
+                // Encode value after tag
+                encoder.encode_data_object(data)?;
             }
             GetDataResult::DataAccessResult(code) => {
-                // Encode value first (A-XDR reverse order)
-                encoder.encode_u8(*code)?;
-                // Encode choice tag (1 = DataAccessResult)
+                // Encode choice tag first (1 = DataAccessResult)
                 encoder.encode_u8(1)?;
+                // Encode value after tag
+                encoder.encode_u8(*code)?;
             }
         }
 
@@ -1290,20 +1298,24 @@ impl GetDataResult {
     }
 
     /// Decode from A-XDR format
+    ///
+    /// # A-XDR CHOICE Decoding Order
+    /// Decodes in the same order as encoding: tag first, then value.
+    /// This matches the A-XDR standard and ensures roundtrip compatibility.
     pub fn decode(data: &[u8]) -> DlmsResult<Self> {
         let mut decoder = AxdrDecoder::new(data);
 
-        // Decode choice tag first (A-XDR reverse order)
+        // Decode choice tag first
         let choice_tag = decoder.decode_u8()?;
 
         match choice_tag {
             0 => {
-                // Data variant
+                // Data variant: decode value after tag
                 let data_obj = decoder.decode_data_object()?;
                 Ok(Self::Data(data_obj))
             }
             1 => {
-                // DataAccessResult variant
+                // DataAccessResult variant: decode value after tag
                 let code = decoder.decode_u8()?;
                 Ok(Self::DataAccessResult(code))
             }
@@ -1612,22 +1624,22 @@ impl GetRequest {
 
         match self {
             GetRequest::Normal(normal) => {
-                // Encode value first (A-XDR reverse order)
-                let normal_bytes = normal.encode()?;
-                encoder.encode_bytes(&normal_bytes)?;
-                // Encode choice tag (1 = Normal)
+                // Encode choice tag first (1 = Normal)
                 encoder.encode_u8(1)?;
+                // Encode value after tag (as octet string with length prefix)
+                let normal_bytes = normal.encode()?;
+                encoder.encode_octet_string(&normal_bytes)?;
             }
             GetRequest::Next {
                 invoke_id_and_priority,
                 block_number,
             } => {
-                // Encode value first (A-XDR reverse order)
+                // Encode choice tag first (2 = Next)
+                encoder.encode_u8(2)?;
+                // Encode value after tag (in reverse order for SEQUENCE)
                 encoder.encode_u32(*block_number)?;
                 let invoke_bytes = invoke_id_and_priority.encode()?;
-                encoder.encode_bytes(&invoke_bytes)?;
-                // Encode choice tag (2 = Next)
-                encoder.encode_u8(2)?;
+                encoder.encode_octet_string(&invoke_bytes)?;
             }
             GetRequest::WithList {
                 invoke_id_and_priority,
@@ -1666,15 +1678,15 @@ impl GetRequest {
                     };
                     encoder.encode_bytes(&len_enc.encode())?;
                     
-                    // Encode each element (in forward order, as per A-XDR array encoding)
-                    // Each element is optional, so encode flag then value
-                    for access_opt in access_list.iter() {
-                        encoder.encode_bool(access_opt.is_some())?;
-                        if let Some(ref access_desc) = access_opt {
-                            let access_bytes = access_desc.encode()?;
-                            encoder.encode_bytes(&access_bytes)?;
-                        }
+                // Encode each element (in forward order, as per A-XDR array encoding)
+                // Each element is optional, so encode flag then value
+                for access_opt in access_list.iter() {
+                    encoder.encode_bool(access_opt.is_some())?;
+                    if let Some(ref access_desc) = access_opt {
+                        let access_bytes = access_desc.encode()?;
+                        encoder.encode_octet_string(&access_bytes)?;
                     }
+                }
                 } else {
                     // Encode usage flag: false (array does not exist)
                     encoder.encode_bool(false)?;
@@ -1692,12 +1704,12 @@ impl GetRequest {
                 // Encode each element (in forward order, as per A-XDR array encoding)
                 for attr_desc in attribute_descriptor_list.iter() {
                     let attr_bytes = attr_desc.encode()?;
-                    encoder.encode_bytes(&attr_bytes)?;
+                    encoder.encode_octet_string(&attr_bytes)?;
                 }
                 
                 // 3. invoke_id_and_priority (InvokeIdAndPriority)
                 let invoke_bytes = invoke_id_and_priority.encode()?;
-                encoder.encode_bytes(&invoke_bytes)?;
+                encoder.encode_octet_string(&invoke_bytes)?;
                 
                 // 4. Choice tag (3 = WithList)
                 encoder.encode_u8(3)?;
@@ -1723,6 +1735,10 @@ impl GetRequest {
             }
             2 => {
                 // Next variant
+                // Decode in reverse order (A-XDR SEQUENCE convention)
+                // Encoding order: tag, block_number, invoke_bytes (SEQUENCE fields in reverse order)
+                // Decoding order: tag, then decode fields in reverse of encoding order
+                // Since encoding is: block_number, invoke_bytes, decoding should be: invoke_bytes, block_number
                 let invoke_bytes = decoder.decode_octet_string()?;
                 let invoke_id_and_priority = InvokeIdAndPriority::decode(&invoke_bytes)?;
                 let block_number = decoder.decode_u32()?;
@@ -1740,8 +1756,8 @@ impl GetRequest {
                 
                 // 2. attribute_descriptor_list (required array of CosemAttributeDescriptor)
                 // Decode array length: first byte indicates format
-                let first_byte = decoder.decode_u8()?;
-                let attr_list_len = if (first_byte & 0x80) == 0 {
+                let first_byte: u8 = decoder.decode_u8()?;
+                let attr_list_len: usize = if (first_byte & 0x80) == 0 {
                     // Short form: length < 128
                     first_byte as usize
                 } else {
@@ -1779,8 +1795,8 @@ impl GetRequest {
                 let has_access_list = decoder.decode_bool()?;
                 let access_selection_list = if has_access_list {
                     // Decode array length
-                    let first_byte = decoder.decode_u8()?;
-                    let access_list_len = if (first_byte & 0x80) == 0 {
+                    let first_byte: u8 = decoder.decode_u8()?;
+                    let access_list_len: usize = if (first_byte & 0x80) == 0 {
                         // Short form
                         first_byte as usize
                     } else {
@@ -2007,8 +2023,8 @@ impl GetResponse {
                 
                 // 2. result_list (required array of GetDataResult)
                 // Decode array length: first byte indicates format
-                let first_byte = decoder.decode_u8()?;
-                let result_list_len = if (first_byte & 0x80) == 0 {
+                let first_byte: u8 = decoder.decode_u8()?;
+                let result_list_len: usize = if (first_byte & 0x80) == 0 {
                     // Short form: length < 128
                     first_byte as usize
                 } else {
@@ -2248,8 +2264,8 @@ mod tests {
         let decoded = GetRequest::decode(&encoded).unwrap();
         
         match (&request, &decoded) {
-            (GetRequest::WithList { invoke_id_and_priority: inv1, attribute_descriptor_list: attrs1, access_selection_list: access1 },
-             GetRequest::WithList { invoke_id_and_priority: inv2, attribute_descriptor_list: attrs2, access_selection_list: access2 }) => {
+            (GetRequest::WithList { invoke_id_and_priority: inv1, attribute_descriptor_list: attrs1, access_selection_list: access1 }, 
+            GetRequest::WithList { invoke_id_and_priority: inv2, attribute_descriptor_list: attrs2, access_selection_list: access2 }) => {
                 assert_eq!(inv1, inv2);
                 assert_eq!(attrs1.len(), attrs2.len());
                 assert_eq!(attrs1[0], attrs2[0]);
@@ -2283,7 +2299,7 @@ mod tests {
         
         match (&response, &decoded) {
             (GetResponse::WithList { invoke_id_and_priority: inv1, result_list: results1 },
-             GetResponse::WithList { invoke_id_and_priority: inv2, result_list: results2 }) => {
+            GetResponse::WithList { invoke_id_and_priority: inv2, result_list: results2 }) => {
                 assert_eq!(inv1, inv2);
                 assert_eq!(results1.len(), results2.len());
                 assert_eq!(results1[0].is_success(), results2[0].is_success());
@@ -2312,7 +2328,7 @@ mod tests {
         
         match (&response, &decoded) {
             (GetResponse::WithList { invoke_id_and_priority: inv1, result_list: results1 },
-             GetResponse::WithList { invoke_id_and_priority: inv2, result_list: results2 }) => {
+            GetResponse::WithList { invoke_id_and_priority: inv2, result_list: results2 }) => {
                 assert_eq!(inv1, inv2);
                 assert_eq!(results1.len(), results2.len());
                 assert_eq!(results1[0].is_success(), results2[0].is_success());
@@ -2365,7 +2381,7 @@ mod tests {
         
         match (&request, &decoded) {
             (GetRequest::Next { invoke_id_and_priority: inv1, block_number: bn1 },
-             GetRequest::Next { invoke_id_and_priority: inv2, block_number: bn2 }) => {
+            GetRequest::Next { invoke_id_and_priority: inv2, block_number: bn2 }) => {
                 assert_eq!(inv1, inv2);
                 assert_eq!(bn1, bn2);
             }
@@ -2392,7 +2408,7 @@ mod tests {
         
         match (&response, &decoded) {
             (GetResponse::WithDataBlock { invoke_id_and_priority: inv1, block_number: bn1, last_block: lb1, block_data: bd1 },
-             GetResponse::WithDataBlock { invoke_id_and_priority: inv2, block_number: bn2, last_block: lb2, block_data: bd2 }) => {
+            GetResponse::WithDataBlock { invoke_id_and_priority: inv2, block_number: bn2, last_block: lb2, block_data: bd2 }) => {
                 assert_eq!(inv1, inv2);
                 assert_eq!(bn1, bn2);
                 assert_eq!(lb1, lb2);
@@ -2702,7 +2718,10 @@ impl CosemMethodDescriptor {
         let instance_bytes = decoder.decode_octet_string()?;
 
         // 3. method_id (Integer8)
-        let method_id = decoder.decode_i8()? as u8;
+        // Note: decode_i8 returns i8, but method_id is u8. We cast the signed value to unsigned.
+        // This is safe because method IDs are always positive values (0-255 range).
+        let method_id_i8: i8 = decoder.decode_i8()?;
+        let method_id: u8 = method_id_i8 as u8;
 
         // Determine addressing method by instance_id length
         match instance_bytes.len() {
@@ -3167,7 +3186,6 @@ impl ActionResult {
             },
         }
     }
-}
 
     /// Encode to A-XDR format
     ///

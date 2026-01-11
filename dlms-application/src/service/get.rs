@@ -31,6 +31,7 @@
 use crate::pdu::{
     GetRequest, GetRequestNormal, GetResponse, GetResponseNormal, GetDataResult,
     CosemAttributeDescriptor, SelectiveAccessDescriptor, InvokeIdAndPriority,
+    data_access_result,
 };
 use dlms_core::{DlmsError, DlmsResult, DataObject};
 
@@ -147,21 +148,33 @@ impl GetService {
     /// The result data or error code
     ///
     /// # Errors
-    /// Returns error if the response is not a Normal response or if the result indicates failure
+    /// Returns error if the response is not a Normal response or if the result indicates failure.
+    /// The error message includes a human-readable description of the error code.
     pub fn process_response(response: &GetResponse) -> DlmsResult<DataObject> {
         match response {
             GetResponse::Normal(normal) => {
                 match &normal.result {
                     GetDataResult::Data(data) => Ok(data.clone()),
-                    GetDataResult::DataAccessResult(code) => Err(DlmsError::InvalidData(format!(
-                        "GET operation failed with error code: {}",
-                        code
-                    ))),
+                    GetDataResult::DataAccessResult(code) => {
+                        let description = normal.result.error_description();
+                        Err(DlmsError::InvalidData(format!(
+                            "GET operation failed with error code {} ({})",
+                            code,
+                            description
+                        )))
+                    }
                 }
             }
-            _ => Err(DlmsError::InvalidData(
-                "Expected Normal GET response".to_string(),
-            )),
+            GetResponse::WithDataBlock { .. } => {
+                Err(DlmsError::InvalidData(
+                    "WithDataBlock response not yet supported in process_response. Use process_response_with_blocks instead.".to_string(),
+                ))
+            }
+            GetResponse::WithList { .. } => {
+                Err(DlmsError::InvalidData(
+                    "WithList response not yet supported in process_response. Use process_response_with_list instead.".to_string(),
+                ))
+            }
         }
     }
 
@@ -175,8 +188,66 @@ impl GetService {
     pub fn process_response_result(response: &GetResponse) -> DlmsResult<GetDataResult> {
         match response {
             GetResponse::Normal(normal) => Ok(normal.result.clone()),
+            GetResponse::WithDataBlock { .. } => {
+                Err(DlmsError::InvalidData(
+                    "WithDataBlock response not yet supported in process_response_result".to_string(),
+                ))
+            }
+            GetResponse::WithList { .. } => {
+                Err(DlmsError::InvalidData(
+                    "WithList response not yet supported in process_response_result".to_string(),
+                ))
+            }
+        }
+    }
+
+    /// Process a GET response with list and extract all results
+    ///
+    /// # Arguments
+    /// * `response` - The GET response PDU (must be WithList variant)
+    ///
+    /// # Returns
+    /// Vector of results, one for each requested attribute
+    ///
+    /// # Errors
+    /// Returns error if the response is not a WithList response
+    pub fn process_response_with_list(response: &GetResponse) -> DlmsResult<Vec<GetDataResult>> {
+        match response {
+            GetResponse::WithList { result_list, .. } => Ok(result_list.clone()),
             _ => Err(DlmsError::InvalidData(
-                "Expected Normal GET response".to_string(),
+                "Expected WithList GET response".to_string(),
+            )),
+        }
+    }
+
+    /// Process a GET response with data block
+    ///
+    /// # Arguments
+    /// * `response` - The GET response PDU (must be WithDataBlock variant)
+    ///
+    /// # Returns
+    /// Tuple containing (block_number, last_block, block_data)
+    ///
+    /// # Errors
+    /// Returns error if the response is not a WithDataBlock response
+    ///
+    /// # Note
+    /// This method returns a single block. For large attributes, you need to:
+    /// 1. Send GetRequest::Next with increasing block numbers
+    /// 2. Collect all blocks until last_block is true
+    /// 3. Concatenate all block_data to reconstruct the complete attribute value
+    pub fn process_response_with_data_block(
+        response: &GetResponse,
+    ) -> DlmsResult<(u32, bool, Vec<u8>)> {
+        match response {
+            GetResponse::WithDataBlock {
+                block_number,
+                last_block,
+                block_data,
+                ..
+            } => Ok((*block_number, *last_block, block_data.clone())),
+            _ => Err(DlmsError::InvalidData(
+                "Expected WithDataBlock GET response".to_string(),
             )),
         }
     }

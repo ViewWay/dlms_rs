@@ -34,7 +34,9 @@
 pub mod get;
 pub mod set;
 pub mod action;
+pub mod event;
 
 pub use get::GetService;
 pub use set::SetService;
 pub use action::ActionService;
+pub use event::EventNotificationService;

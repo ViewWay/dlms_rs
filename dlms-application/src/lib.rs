@@ -23,12 +23,12 @@
 //! - [x] Exception Response PDU 编码/解码
 //!
 //! ## 服务层
-//! - [x] GET 服务实现（基础功能已实现）
+//! - [x] GET 服务实现（基础功能已实现，支持WithList和WithDataBlock）
 //! - [x] SET 服务实现（基础功能已实现）
 //! - [x] ACTION 服务实现（基础功能已实现）
-//! - [ ] Event Notification 服务实现
-//! - [ ] 服务错误处理增强
-//! - [ ] 服务响应处理增强
+//! - [x] Event Notification 服务实现
+//! - [x] 服务错误处理增强（使用标准错误码常量和描述）
+//! - [x] 服务响应处理增强（支持WithList和WithDataBlock）
 //!
 //! ## 寻址
 //! - [x] 逻辑名称（LN）寻址（LogicalNameReference）
@@ -43,10 +43,12 @@ pub mod service {
     pub mod get;
     pub mod set;
     pub mod action;
+    pub mod event;
     
     pub use get::GetService;
     pub use set::SetService;
     pub use action::ActionService;
+    pub use event::EventNotificationService;
 }
 pub mod addressing;
 

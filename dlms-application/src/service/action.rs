@@ -19,6 +19,7 @@
 use crate::pdu::{
     ActionRequest, ActionRequestNormal, ActionResponse, ActionResponseNormal, ActionResult,
     CosemMethodDescriptor, InvokeIdAndPriority,
+    action_result,
 };
 use dlms_core::{DlmsError, DlmsResult, DataObject};
 
@@ -92,18 +93,41 @@ impl ActionService {
     ///
     /// # Returns
     /// The result data (if any) or error code
+    ///
+    /// # Errors
+    /// Returns error with a human-readable description of the error code if the ACTION operation failed
     pub fn process_response(response: &ActionResponse) -> DlmsResult<Option<DataObject>> {
         match response {
             ActionResponse::Normal(normal) => {
                 match &normal.result {
                     ActionResult::SuccessWithData(data) => Ok(Some(data.clone())),
                     ActionResult::Success => Ok(None),
-                    ActionResult::DataAccessResult(code) => Err(DlmsError::InvalidData(format!(
-                        "ACTION operation failed with error code: {}",
-                        code
-                    ))),
+                    ActionResult::DataAccessResult(code) => {
+                        let description = normal.result.error_description();
+                        Err(DlmsError::InvalidData(format!(
+                            "ACTION operation failed with error code {} ({})",
+                            code,
+                            description
+                        )))
+                    }
                 }
             }
+            _ => Err(DlmsError::InvalidData(
+                "Expected Normal ACTION response".to_string(),
+            )),
+        }
+    }
+
+    /// Process an ACTION response and return the full result
+    ///
+    /// # Arguments
+    /// * `response` - The ACTION response PDU
+    ///
+    /// # Returns
+    /// The `ActionResult` containing either success (with or without data) or error code
+    pub fn process_response_result(response: &ActionResponse) -> DlmsResult<ActionResult> {
+        match response {
+            ActionResponse::Normal(normal) => Ok(normal.result.clone()),
             _ => Err(DlmsError::InvalidData(
                 "Expected Normal ACTION response".to_string(),
             )),
