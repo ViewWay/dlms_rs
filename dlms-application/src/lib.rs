@@ -7,8 +7,12 @@
 //! ## PDU (Protocol Data Unit)
 //! - [x] Initiate Request PDU 编码/解码
 //! - [x] Initiate Response PDU 编码/解码
-//! - [ ] Get Request PDU 编码/解码
-//! - [ ] Get Response PDU 编码/解码
+//! - [x] Get Request PDU 编码/解码（Normal和WithList已实现，Next待实现）
+//! - [x] Get Response PDU 编码/解码（Normal和WithList已实现，WithDataBlock待实现）
+//! - [ ] Get Request Next PDU 完整实现（验证和完善现有实现）
+//! - [x] Get Request WithList PDU 完整实现
+//! - [ ] Get Response WithDataBlock PDU 完整实现（验证和完善现有实现）
+//! - [x] Get Response WithList PDU 完整实现
 //! - [ ] Set Request PDU 编码/解码
 //! - [ ] Set Response PDU 编码/解码
 //! - [ ] Action Request PDU 编码/解码
@@ -27,14 +31,19 @@
 //! - [ ] 服务响应处理
 //!
 //! ## 寻址
-//! - [ ] 逻辑名称（LN）寻址
-//! - [ ] 短名称（SN）寻址
-//! - [ ] 类 ID 和属性/方法 ID 处理
-//! - [ ] OBIS 代码到对象引用转换
-//! - [ ] 访问选择器处理
+//! - [x] 逻辑名称（LN）寻址（LogicalNameReference）
+//! - [x] 短名称（SN）寻址（ShortNameReference）
+//! - [x] 类 ID 和属性/方法 ID 处理
+//! - [x] OBIS 代码到对象引用转换
+//! - [x] 访问选择器处理（AccessSelector，基础实现）
+//! - [ ] 完整的访问选择器支持（日期范围等复杂选择器）
 
 pub mod pdu;
 pub mod service;
 pub mod addressing;
 
-pub use pdu::{InitiateRequest, InitiateResponse, Conformance, DLMS_VERSION_6, MAX_PDU_SIZE};
+pub use pdu::{
+    InitiateRequest, InitiateResponse, Conformance, DLMS_VERSION_6, MAX_PDU_SIZE,
+    GetRequest, GetResponse, GetRequestNormal, GetResponseNormal,
+    InvokeIdAndPriority, CosemAttributeDescriptor, SelectiveAccessDescriptor, GetDataResult,
+};

@@ -29,10 +29,14 @@
 //!
 //! ## 🚧 进行中
 //! - 应用层（PDU、服务）
+//!   - ✅ Initiate Request/Response PDU
+//!   - ✅ Get Request/Response PDU (Normal类型)
+//!   - 🚧 Get Request/Response PDU (Next, WithList类型)
+//!   - ⏳ Set/Action/Event/Access/Exception PDU
 //! - 客户端连接管理
 //!
 //! ## 📋 待实现
-//! - ISO-ACSE 层
+//! - ISO-ACSE 层（✅ 基础实现完成，部分高级功能待实现）
 //! - COSEM ASN.1 结构
 //! - 接口类实现
 //! - 服务器实现

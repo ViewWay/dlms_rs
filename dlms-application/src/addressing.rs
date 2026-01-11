@@ -110,7 +110,7 @@ impl LogicalNameReference {
         // Encode attribute/method ID as Unsigned8
         encoder.encode_u8(self.id)?;
         
-        Ok(encoder.finish())
+        Ok(encoder.into_bytes())
     }
 
     /// Decode from A-XDR format
@@ -194,7 +194,7 @@ impl ShortNameReference {
         let mut encoder = AxdrEncoder::new();
         encoder.encode_u16(self.base_name)?;
         encoder.encode_u8(self.id)?;
-        Ok(encoder.finish())
+        Ok(encoder.into_bytes())
     }
 
     /// Decode from A-XDR format
