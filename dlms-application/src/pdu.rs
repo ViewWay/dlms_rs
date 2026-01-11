@@ -3686,34 +3686,408 @@ impl EventNotification {
 // Access Request/Response PDU Implementation
 // ============================================================================
 
+/// Access Request Specification
+///
+/// Specifies a single access operation (GET, SET, or ACTION) within an AccessRequest.
+///
+/// # Structure
+/// This is a CHOICE type with three variants:
+/// - **Get** (tag 1): GET operation with attribute descriptor and optional selective access
+/// - **Set** (tag 2): SET operation with attribute descriptor, optional selective access, and value
+/// - **Action** (tag 3): ACTION operation with method descriptor and optional parameters
+///
+/// # Why CHOICE Type?
+/// Each access operation has different parameters:
+/// - GET: needs attribute descriptor and optional selective access
+/// - SET: needs attribute descriptor, optional selective access, and value to write
+/// - ACTION: needs method descriptor and optional method parameters
+///
+/// Using a CHOICE type allows type-safe representation of these different operation types.
+#[derive(Debug, Clone, PartialEq)]
+pub enum AccessRequestSpecification {
+    /// GET operation (tag 1)
+    Get {
+        /// Attribute to read
+        cosem_attribute_descriptor: CosemAttributeDescriptor,
+        /// Optional selective access descriptor
+        access_selection: Option<SelectiveAccessDescriptor>,
+    },
+    /// SET operation (tag 2)
+    Set {
+        /// Attribute to write
+        cosem_attribute_descriptor: CosemAttributeDescriptor,
+        /// Optional selective access descriptor
+        access_selection: Option<SelectiveAccessDescriptor>,
+        /// Value to write
+        value: DataObject,
+    },
+    /// ACTION operation (tag 3)
+    Action {
+        /// Method to invoke
+        cosem_method_descriptor: CosemMethodDescriptor,
+        /// Optional method parameters
+        method_invocation_parameters: Option<DataObject>,
+    },
+}
+
+impl AccessRequestSpecification {
+    /// Encode to A-XDR format
+    ///
+    /// Encoding order (A-XDR CHOICE):
+    /// 1. Choice tag (1 = Get, 2 = Set, 3 = Action)
+    /// 2. Value (operation-specific parameters)
+    pub fn encode(&self) -> DlmsResult<Vec<u8>> {
+        let mut encoder = AxdrEncoder::new();
+
+        match self {
+            AccessRequestSpecification::Get {
+                cosem_attribute_descriptor,
+                access_selection,
+            } => {
+                // Encode choice tag first (1 = Get)
+                encoder.encode_u8(1)?;
+                // Encode value after tag (in reverse order for SEQUENCE)
+                // 1. access_selection (optional SelectiveAccessDescriptor)
+                encoder.encode_bool(access_selection.is_some())?;
+                if let Some(ref access_desc) = access_selection {
+                    let access_bytes = access_desc.encode()?;
+                    encoder.encode_octet_string(&access_bytes)?;
+                }
+                // 2. cosem_attribute_descriptor (CosemAttributeDescriptor)
+                let attr_bytes = cosem_attribute_descriptor.encode()?;
+                encoder.encode_octet_string(&attr_bytes)?;
+            }
+            AccessRequestSpecification::Set {
+                cosem_attribute_descriptor,
+                access_selection,
+                value,
+            } => {
+                // Encode choice tag first (2 = Set)
+                encoder.encode_u8(2)?;
+                // Encode value after tag (in reverse order for SEQUENCE)
+                // 1. value (DataObject)
+                encoder.encode_data_object(value)?;
+                // 2. access_selection (optional SelectiveAccessDescriptor)
+                encoder.encode_bool(access_selection.is_some())?;
+                if let Some(ref access_desc) = access_selection {
+                    let access_bytes = access_desc.encode()?;
+                    encoder.encode_octet_string(&access_bytes)?;
+                }
+                // 3. cosem_attribute_descriptor (CosemAttributeDescriptor)
+                let attr_bytes = cosem_attribute_descriptor.encode()?;
+                encoder.encode_octet_string(&attr_bytes)?;
+            }
+            AccessRequestSpecification::Action {
+                cosem_method_descriptor,
+                method_invocation_parameters,
+            } => {
+                // Encode choice tag first (3 = Action)
+                encoder.encode_u8(3)?;
+                // Encode value after tag (in reverse order for SEQUENCE)
+                // 1. method_invocation_parameters (optional DataObject)
+                encoder.encode_bool(method_invocation_parameters.is_some())?;
+                if let Some(ref params) = method_invocation_parameters {
+                    encoder.encode_data_object(params)?;
+                }
+                // 2. cosem_method_descriptor (CosemMethodDescriptor)
+                let method_bytes = cosem_method_descriptor.encode()?;
+                encoder.encode_octet_string(&method_bytes)?;
+            }
+        }
+
+        Ok(encoder.into_bytes())
+    }
+
+    /// Decode from A-XDR format
+    pub fn decode(data: &[u8]) -> DlmsResult<Self> {
+        let mut decoder = AxdrDecoder::new(data);
+
+        // Decode choice tag first
+        let choice_tag = decoder.decode_u8()?;
+
+        match choice_tag {
+            1 => {
+                // Get variant: decode value after tag (in reverse order)
+                // 1. cosem_attribute_descriptor (CosemAttributeDescriptor)
+                let attr_bytes = decoder.decode_octet_string()?;
+                let cosem_attribute_descriptor = CosemAttributeDescriptor::decode(&attr_bytes)?;
+                // 2. access_selection (optional SelectiveAccessDescriptor)
+                let access_used = decoder.decode_bool()?;
+                let access_selection = if access_used {
+                    let access_bytes = decoder.decode_octet_string()?;
+                    Some(SelectiveAccessDescriptor::decode(&access_bytes)?)
+                } else {
+                    None
+                };
+                Ok(Self::Get {
+                    cosem_attribute_descriptor,
+                    access_selection,
+                })
+            }
+            2 => {
+                // Set variant: decode value after tag (in reverse order)
+                // 1. cosem_attribute_descriptor (CosemAttributeDescriptor)
+                let attr_bytes = decoder.decode_octet_string()?;
+                let cosem_attribute_descriptor = CosemAttributeDescriptor::decode(&attr_bytes)?;
+                // 2. access_selection (optional SelectiveAccessDescriptor)
+                let access_used = decoder.decode_bool()?;
+                let access_selection = if access_used {
+                    let access_bytes = decoder.decode_octet_string()?;
+                    Some(SelectiveAccessDescriptor::decode(&access_bytes)?)
+                } else {
+                    None
+                };
+                // 3. value (DataObject)
+                let value = decoder.decode_data_object()?;
+                Ok(Self::Set {
+                    cosem_attribute_descriptor,
+                    access_selection,
+                    value,
+                })
+            }
+            3 => {
+                // Action variant: decode value after tag (in reverse order)
+                // 1. cosem_method_descriptor (CosemMethodDescriptor)
+                let method_bytes = decoder.decode_octet_string()?;
+                let cosem_method_descriptor = CosemMethodDescriptor::decode(&method_bytes)?;
+                // 2. method_invocation_parameters (optional DataObject)
+                let params_used = decoder.decode_bool()?;
+                let method_invocation_parameters = if params_used {
+                    Some(decoder.decode_data_object()?)
+                } else {
+                    None
+                };
+                Ok(Self::Action {
+                    cosem_method_descriptor,
+                    method_invocation_parameters,
+                })
+            }
+            _ => Err(DlmsError::InvalidData(format!(
+                "Invalid AccessRequestSpecification choice tag: {} (expected 1, 2, or 3)",
+                choice_tag
+            ))),
+        }
+    }
+}
+
 /// Access Request PDU
 ///
 /// Used for accessing multiple attributes/methods in a single request.
 /// This is a more general-purpose PDU that can combine GET, SET, and ACTION operations.
 ///
-/// # TODO
-/// - [ ] 实现完整的 Access Request 结构
+/// # Structure
+/// - `invoke_id_and_priority`: Invoke ID and priority
+/// - `access_request_list`: Array of access request specifications
+///
+/// # Why Access Request?
+/// Access Request allows combining multiple operations (GET, SET, ACTION) in a single PDU,
+/// reducing protocol overhead and improving efficiency when multiple operations need to be
+/// performed atomically or in sequence.
+///
+/// # Usage Example
+/// ```rust,no_run
+/// // Create an Access Request with multiple operations
+/// let access_request = AccessRequest::new(
+///     invoke_id_and_priority,
+///     vec![
+///         AccessRequestSpecification::Get { ... },
+///         AccessRequestSpecification::Set { ... },
+///         AccessRequestSpecification::Action { ... },
+///     ],
+/// )?;
+/// ```
 #[derive(Debug, Clone, PartialEq)]
 pub struct AccessRequest {
-    // TODO: Implement full structure
+    /// Invoke ID and priority
     pub invoke_id_and_priority: InvokeIdAndPriority,
+    /// List of access request specifications
+    pub access_request_list: Vec<AccessRequestSpecification>,
 }
 
 impl AccessRequest {
+    /// Create a new AccessRequest
+    ///
+    /// # Arguments
+    /// * `invoke_id_and_priority` - Invoke ID and priority
+    /// * `access_request_list` - List of access request specifications (must not be empty)
+    ///
+    /// # Errors
+    /// Returns error if `access_request_list` is empty
+    pub fn new(
+        invoke_id_and_priority: InvokeIdAndPriority,
+        access_request_list: Vec<AccessRequestSpecification>,
+    ) -> DlmsResult<Self> {
+        if access_request_list.is_empty() {
+            return Err(DlmsError::InvalidData(
+                "AccessRequest: access_request_list cannot be empty".to_string(),
+            ));
+        }
+        Ok(Self {
+            invoke_id_and_priority,
+            access_request_list,
+        })
+    }
+
     /// Encode to A-XDR format
+    ///
+    /// Encoding order (A-XDR SEQUENCE, reverse order):
+    /// 1. access_request_list (array of AccessRequestSpecification)
+    /// 2. invoke_id_and_priority (InvokeIdAndPriority)
     pub fn encode(&self) -> DlmsResult<Vec<u8>> {
-        // TODO: Implement encoding
-        Err(DlmsError::InvalidData(
-            "AccessRequest encoding not yet implemented".to_string(),
-        ))
+        let mut encoder = AxdrEncoder::new();
+
+        // Encode in reverse order (A-XDR SEQUENCE convention)
+        // 1. access_request_list (array of AccessRequestSpecification)
+        // Encode array length: first byte indicates format
+        let list_len = self.access_request_list.len();
+        if list_len >= 128 {
+            return Err(DlmsError::InvalidData(format!(
+                "AccessRequest: access_request_list length ({}) exceeds maximum (127)",
+                list_len
+            )));
+        }
+        encoder.encode_u8(list_len as u8)?;
+        // Encode each element (in forward order, as per A-XDR array encoding)
+        for access_spec in self.access_request_list.iter() {
+            let spec_bytes = access_spec.encode()?;
+            encoder.encode_octet_string(&spec_bytes)?;
+        }
+
+        // 2. invoke_id_and_priority (InvokeIdAndPriority)
+        let invoke_bytes = self.invoke_id_and_priority.encode()?;
+        encoder.encode_octet_string(&invoke_bytes)?;
+
+        Ok(encoder.into_bytes())
     }
 
     /// Decode from A-XDR format
-    pub fn decode(_data: &[u8]) -> DlmsResult<Self> {
-        // TODO: Implement decoding
-        Err(DlmsError::InvalidData(
-            "AccessRequest decoding not yet implemented".to_string(),
-        ))
+    pub fn decode(data: &[u8]) -> DlmsResult<Self> {
+        let mut decoder = AxdrDecoder::new(data);
+
+        // Decode in reverse order (A-XDR SEQUENCE convention)
+        // 1. invoke_id_and_priority (InvokeIdAndPriority)
+        let invoke_bytes = decoder.decode_octet_string()?;
+        let invoke_id_and_priority = InvokeIdAndPriority::decode(&invoke_bytes)?;
+
+        // 2. access_request_list (array of AccessRequestSpecification)
+        // Decode array length: first byte indicates format
+        let first_byte: u8 = decoder.decode_u8()?;
+        let list_len: usize = if (first_byte & 0x80) == 0 {
+            // Short form: length < 128
+            first_byte as usize
+        } else {
+            return Err(DlmsError::InvalidData(
+                "AccessRequest: Long form array length not supported".to_string(),
+            ));
+        };
+
+        let mut access_request_list = Vec::with_capacity(list_len);
+        for _ in 0..list_len {
+            let spec_bytes = decoder.decode_octet_string()?;
+            access_request_list.push(AccessRequestSpecification::decode(&spec_bytes)?);
+        }
+
+        Ok(Self {
+            invoke_id_and_priority,
+            access_request_list,
+        })
+    }
+}
+
+/// Access Response Specification
+///
+/// Specifies the result of a single access operation (GET, SET, or ACTION) within an AccessResponse.
+///
+/// # Structure
+/// This is a CHOICE type with three variants:
+/// - **Get** (tag 1): GET operation result (GetDataResult)
+/// - **Set** (tag 2): SET operation result (SetDataResult)
+/// - **Action** (tag 3): ACTION operation result (ActionResult)
+///
+/// # Why CHOICE Type?
+/// Each access operation has different result types:
+/// - GET: returns GetDataResult (Data or DataAccessResult)
+/// - SET: returns SetDataResult (Success or DataAccessResult)
+/// - ACTION: returns ActionResult (Success, SuccessWithData, or DataAccessResult)
+///
+/// Using a CHOICE type allows type-safe representation of these different result types.
+#[derive(Debug, Clone, PartialEq)]
+pub enum AccessResponseSpecification {
+    /// GET operation result (tag 1)
+    Get(GetDataResult),
+    /// SET operation result (tag 2)
+    Set(SetDataResult),
+    /// ACTION operation result (tag 3)
+    Action(ActionResult),
+}
+
+impl AccessResponseSpecification {
+    /// Encode to A-XDR format
+    ///
+    /// Encoding order (A-XDR CHOICE):
+    /// 1. Choice tag (1 = Get, 2 = Set, 3 = Action)
+    /// 2. Value (operation-specific result)
+    pub fn encode(&self) -> DlmsResult<Vec<u8>> {
+        let mut encoder = AxdrEncoder::new();
+
+        match self {
+            AccessResponseSpecification::Get(result) => {
+                // Encode choice tag first (1 = Get)
+                encoder.encode_u8(1)?;
+                // Encode value after tag
+                let result_bytes = result.encode()?;
+                encoder.encode_octet_string(&result_bytes)?;
+            }
+            AccessResponseSpecification::Set(result) => {
+                // Encode choice tag first (2 = Set)
+                encoder.encode_u8(2)?;
+                // Encode value after tag
+                let result_bytes = result.encode()?;
+                encoder.encode_octet_string(&result_bytes)?;
+            }
+            AccessResponseSpecification::Action(result) => {
+                // Encode choice tag first (3 = Action)
+                encoder.encode_u8(3)?;
+                // Encode value after tag
+                let result_bytes = result.encode()?;
+                encoder.encode_octet_string(&result_bytes)?;
+            }
+        }
+
+        Ok(encoder.into_bytes())
+    }
+
+    /// Decode from A-XDR format
+    pub fn decode(data: &[u8]) -> DlmsResult<Self> {
+        let mut decoder = AxdrDecoder::new(data);
+
+        // Decode choice tag first
+        let choice_tag = decoder.decode_u8()?;
+
+        match choice_tag {
+            1 => {
+                // Get variant: decode value after tag
+                let result_bytes = decoder.decode_octet_string()?;
+                let result = GetDataResult::decode(&result_bytes)?;
+                Ok(Self::Get(result))
+            }
+            2 => {
+                // Set variant: decode value after tag
+                let result_bytes = decoder.decode_octet_string()?;
+                let result = SetDataResult::decode(&result_bytes)?;
+                Ok(Self::Set(result))
+            }
+            3 => {
+                // Action variant: decode value after tag
+                let result_bytes = decoder.decode_octet_string()?;
+                let result = ActionResult::decode(&result_bytes)?;
+                Ok(Self::Action(result))
+            }
+            _ => Err(DlmsError::InvalidData(format!(
+                "Invalid AccessResponseSpecification choice tag: {} (expected 1, 2, or 3)",
+                choice_tag
+            ))),
+        }
     }
 }
 
@@ -3721,29 +4095,127 @@ impl AccessRequest {
 ///
 /// Response to an AccessRequest, containing results for multiple operations.
 ///
-/// # TODO
-/// - [ ] 实现完整的 Access Response 结构
+/// # Structure
+/// - `invoke_id_and_priority`: Invoke ID and priority (echoed from request)
+/// - `access_response_list`: Array of access response specifications
+///
+/// # Result Ordering
+/// The `access_response_list` must have the same length and order as the corresponding
+/// `access_request_list` in the AccessRequest, allowing the client to correlate each
+/// result with its corresponding request.
+///
+/// # Usage Example
+/// ```rust,no_run
+/// // Process Access Response
+/// for (i, response_spec) in access_response.access_response_list.iter().enumerate() {
+///     match response_spec {
+///         AccessResponseSpecification::Get(result) => {
+///             // Handle GET result
+///         }
+///         AccessResponseSpecification::Set(result) => {
+///             // Handle SET result
+///         }
+///         AccessResponseSpecification::Action(result) => {
+///             // Handle ACTION result
+///         }
+///     }
+/// }
+/// ```
 #[derive(Debug, Clone, PartialEq)]
 pub struct AccessResponse {
-    // TODO: Implement full structure
+    /// Invoke ID and priority (echoed from request)
     pub invoke_id_and_priority: InvokeIdAndPriority,
+    /// List of access response specifications
+    pub access_response_list: Vec<AccessResponseSpecification>,
 }
 
 impl AccessResponse {
+    /// Create a new AccessResponse
+    ///
+    /// # Arguments
+    /// * `invoke_id_and_priority` - Invoke ID and priority (echoed from request)
+    /// * `access_response_list` - List of access response specifications (must not be empty)
+    ///
+    /// # Errors
+    /// Returns error if `access_response_list` is empty
+    pub fn new(
+        invoke_id_and_priority: InvokeIdAndPriority,
+        access_response_list: Vec<AccessResponseSpecification>,
+    ) -> DlmsResult<Self> {
+        if access_response_list.is_empty() {
+            return Err(DlmsError::InvalidData(
+                "AccessResponse: access_response_list cannot be empty".to_string(),
+            ));
+        }
+        Ok(Self {
+            invoke_id_and_priority,
+            access_response_list,
+        })
+    }
+
     /// Encode to A-XDR format
+    ///
+    /// Encoding order (A-XDR SEQUENCE, reverse order):
+    /// 1. access_response_list (array of AccessResponseSpecification)
+    /// 2. invoke_id_and_priority (InvokeIdAndPriority)
     pub fn encode(&self) -> DlmsResult<Vec<u8>> {
-        // TODO: Implement encoding
-        Err(DlmsError::InvalidData(
-            "AccessResponse encoding not yet implemented".to_string(),
-        ))
+        let mut encoder = AxdrEncoder::new();
+
+        // Encode in reverse order (A-XDR SEQUENCE convention)
+        // 1. access_response_list (array of AccessResponseSpecification)
+        // Encode array length: first byte indicates format
+        let list_len = self.access_response_list.len();
+        if list_len >= 128 {
+            return Err(DlmsError::InvalidData(format!(
+                "AccessResponse: access_response_list length ({}) exceeds maximum (127)",
+                list_len
+            )));
+        }
+        encoder.encode_u8(list_len as u8)?;
+        // Encode each element (in forward order, as per A-XDR array encoding)
+        for response_spec in self.access_response_list.iter() {
+            let spec_bytes = response_spec.encode()?;
+            encoder.encode_octet_string(&spec_bytes)?;
+        }
+
+        // 2. invoke_id_and_priority (InvokeIdAndPriority)
+        let invoke_bytes = self.invoke_id_and_priority.encode()?;
+        encoder.encode_octet_string(&invoke_bytes)?;
+
+        Ok(encoder.into_bytes())
     }
 
     /// Decode from A-XDR format
-    pub fn decode(_data: &[u8]) -> DlmsResult<Self> {
-        // TODO: Implement decoding
-        Err(DlmsError::InvalidData(
-            "AccessResponse decoding not yet implemented".to_string(),
-        ))
+    pub fn decode(data: &[u8]) -> DlmsResult<Self> {
+        let mut decoder = AxdrDecoder::new(data);
+
+        // Decode in reverse order (A-XDR SEQUENCE convention)
+        // 1. invoke_id_and_priority (InvokeIdAndPriority)
+        let invoke_bytes = decoder.decode_octet_string()?;
+        let invoke_id_and_priority = InvokeIdAndPriority::decode(&invoke_bytes)?;
+
+        // 2. access_response_list (array of AccessResponseSpecification)
+        // Decode array length: first byte indicates format
+        let first_byte: u8 = decoder.decode_u8()?;
+        let list_len: usize = if (first_byte & 0x80) == 0 {
+            // Short form: length < 128
+            first_byte as usize
+        } else {
+            return Err(DlmsError::InvalidData(
+                "AccessResponse: Long form array length not supported".to_string(),
+            ));
+        };
+
+        let mut access_response_list = Vec::with_capacity(list_len);
+        for _ in 0..list_len {
+            let spec_bytes = decoder.decode_octet_string()?;
+            access_response_list.push(AccessResponseSpecification::decode(&spec_bytes)?);
+        }
+
+        Ok(Self {
+            invoke_id_and_priority,
+            access_response_list,
+        })
     }
 }
 

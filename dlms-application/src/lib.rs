@@ -18,8 +18,8 @@
 //! - [x] Action Request PDU 编码/解码（Normal类型已实现）
 //! - [x] Action Response PDU 编码/解码（Normal类型已实现）
 //! - [x] Event Notification PDU 编码/解码
-//! - [ ] Access Request PDU 编码/解码（基础结构已定义，待完整实现）
-//! - [ ] Access Response PDU 编码/解码（基础结构已定义，待完整实现）
+//! - [x] Access Request PDU 编码/解码（完整实现）
+//! - [x] Access Response PDU 编码/解码（完整实现）
 //! - [x] Exception Response PDU 编码/解码
 //!
 //! ## 服务层
@@ -57,7 +57,8 @@ pub use pdu::{
     GetRequest, GetResponse, GetRequestNormal, GetResponseNormal,
     SetRequest, SetResponse, SetRequestNormal, SetResponseNormal, SetDataResult,
     ActionRequest, ActionResponse, ActionRequestNormal, ActionResponseNormal, ActionResult,
-    EventNotification, AccessRequest, AccessResponse, ExceptionResponse,
+    EventNotification, AccessRequest, AccessResponse, AccessRequestSpecification, AccessResponseSpecification,
+    ExceptionResponse,
     InvokeIdAndPriority, CosemAttributeDescriptor, CosemMethodDescriptor,
     SelectiveAccessDescriptor, GetDataResult,
 };
