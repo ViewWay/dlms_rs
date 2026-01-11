@@ -13,22 +13,22 @@
 //! - [x] Get Request WithList PDU 完整实现
 //! - [ ] Get Response WithDataBlock PDU 完整实现（验证和完善现有实现）
 //! - [x] Get Response WithList PDU 完整实现
-//! - [ ] Set Request PDU 编码/解码
-//! - [ ] Set Response PDU 编码/解码
-//! - [ ] Action Request PDU 编码/解码
-//! - [ ] Action Response PDU 编码/解码
-//! - [ ] Event Notification PDU 编码/解码
-//! - [ ] Access Request PDU 编码/解码
-//! - [ ] Access Response PDU 编码/解码
-//! - [ ] Exception Response PDU 编码/解码
+//! - [x] Set Request PDU 编码/解码（Normal类型已实现）
+//! - [x] Set Response PDU 编码/解码（Normal类型已实现）
+//! - [x] Action Request PDU 编码/解码（Normal类型已实现）
+//! - [x] Action Response PDU 编码/解码（Normal类型已实现）
+//! - [x] Event Notification PDU 编码/解码
+//! - [ ] Access Request PDU 编码/解码（基础结构已定义，待完整实现）
+//! - [ ] Access Response PDU 编码/解码（基础结构已定义，待完整实现）
+//! - [x] Exception Response PDU 编码/解码
 //!
 //! ## 服务层
-//! - [ ] GET 服务实现
-//! - [ ] SET 服务实现
-//! - [ ] ACTION 服务实现
+//! - [x] GET 服务实现（基础功能已实现）
+//! - [x] SET 服务实现（基础功能已实现）
+//! - [x] ACTION 服务实现（基础功能已实现）
 //! - [ ] Event Notification 服务实现
-//! - [ ] 服务错误处理
-//! - [ ] 服务响应处理
+//! - [ ] 服务错误处理增强
+//! - [ ] 服务响应处理增强
 //!
 //! ## 寻址
 //! - [x] 逻辑名称（LN）寻址（LogicalNameReference）
@@ -39,11 +39,23 @@
 //! - [ ] 完整的访问选择器支持（日期范围等复杂选择器）
 
 pub mod pdu;
-pub mod service;
+pub mod service {
+    pub mod get;
+    pub mod set;
+    pub mod action;
+    
+    pub use get::GetService;
+    pub use set::SetService;
+    pub use action::ActionService;
+}
 pub mod addressing;
 
 pub use pdu::{
     InitiateRequest, InitiateResponse, Conformance, DLMS_VERSION_6, MAX_PDU_SIZE,
     GetRequest, GetResponse, GetRequestNormal, GetResponseNormal,
-    InvokeIdAndPriority, CosemAttributeDescriptor, SelectiveAccessDescriptor, GetDataResult,
+    SetRequest, SetResponse, SetRequestNormal, SetResponseNormal, SetDataResult,
+    ActionRequest, ActionResponse, ActionRequestNormal, ActionResponseNormal, ActionResult,
+    EventNotification, AccessRequest, AccessResponse, ExceptionResponse,
+    InvokeIdAndPriority, CosemAttributeDescriptor, CosemMethodDescriptor,
+    SelectiveAccessDescriptor, GetDataResult,
 };

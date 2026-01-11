@@ -30,9 +30,13 @@
 //! ## 🚧 进行中
 //! - 应用层（PDU、服务）
 //!   - ✅ Initiate Request/Response PDU
-//!   - ✅ Get Request/Response PDU (Normal类型)
-//!   - 🚧 Get Request/Response PDU (Next, WithList类型)
-//!   - ⏳ Set/Action/Event/Access/Exception PDU
+//!   - ✅ Get Request/Response PDU (Normal, WithList, Next, WithDataBlock)
+//!   - ✅ Set Request/Response PDU (Normal类型)
+//!   - ✅ Action Request/Response PDU (Normal类型)
+//!   - ✅ Event Notification PDU
+//!   - ✅ Exception Response PDU
+//!   - ✅ GET/SET/ACTION 服务层（基础功能）
+//!   - ⏳ Access Request/Response PDU (待完整实现)
 //! - 客户端连接管理
 //!
 //! ## 📋 待实现

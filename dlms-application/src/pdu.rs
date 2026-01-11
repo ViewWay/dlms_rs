@@ -2017,4 +2017,1368 @@ mod tests {
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("cannot be empty"));
     }
+
+    #[test]
+    fn test_get_request_next_encode_decode() {
+        let invoke = InvokeIdAndPriority::new(1, false).unwrap();
+        let block_number = 5u32;
+        
+        let request = GetRequest::Next {
+            invoke_id_and_priority: invoke.clone(),
+            block_number,
+        };
+        
+        let encoded = request.encode().unwrap();
+        let decoded = GetRequest::decode(&encoded).unwrap();
+        
+        match (&request, &decoded) {
+            (GetRequest::Next { invoke_id_and_priority: inv1, block_number: bn1 },
+             GetRequest::Next { invoke_id_and_priority: inv2, block_number: bn2 }) => {
+                assert_eq!(inv1, inv2);
+                assert_eq!(bn1, bn2);
+            }
+            _ => panic!("Expected Next variants"),
+        }
+    }
+
+    #[test]
+    fn test_get_response_with_data_block_encode_decode() {
+        let invoke = InvokeIdAndPriority::new(1, false).unwrap();
+        let block_number = 5u32;
+        let last_block = false;
+        let block_data = vec![0x01, 0x02, 0x03, 0x04, 0x05];
+        
+        let response = GetResponse::WithDataBlock {
+            invoke_id_and_priority: invoke.clone(),
+            block_number,
+            last_block,
+            block_data: block_data.clone(),
+        };
+        
+        let encoded = response.encode().unwrap();
+        let decoded = GetResponse::decode(&encoded).unwrap();
+        
+        match (&response, &decoded) {
+            (GetResponse::WithDataBlock { invoke_id_and_priority: inv1, block_number: bn1, last_block: lb1, block_data: bd1 },
+             GetResponse::WithDataBlock { invoke_id_and_priority: inv2, block_number: bn2, last_block: lb2, block_data: bd2 }) => {
+                assert_eq!(inv1, inv2);
+                assert_eq!(bn1, bn2);
+                assert_eq!(lb1, lb2);
+                assert_eq!(bd1, bd2);
+            }
+            _ => panic!("Expected WithDataBlock variants"),
+        }
+    }
+
+    #[test]
+    fn test_get_response_with_data_block_last_block() {
+        let invoke = InvokeIdAndPriority::new(1, false).unwrap();
+        let block_number = 10u32;
+        let last_block = true;
+        let block_data = vec![0xFF, 0xFE, 0xFD];
+        
+        let response = GetResponse::WithDataBlock {
+            invoke_id_and_priority: invoke.clone(),
+            block_number,
+            last_block,
+            block_data: block_data.clone(),
+        };
+        
+        let encoded = response.encode().unwrap();
+        let decoded = GetResponse::decode(&encoded).unwrap();
+        
+        match decoded {
+            GetResponse::WithDataBlock { invoke_id_and_priority: _, block_number: bn, last_block: lb, block_data: bd } => {
+                assert_eq!(bn, block_number);
+                assert_eq!(lb, last_block);
+                assert_eq!(bd, block_data);
+            }
+            _ => panic!("Expected WithDataBlock variant"),
+        }
+    }
+}
+
+// ============================================================================
+// Set Request/Response PDU Implementation
+// ============================================================================
+
+/// Set Data Result
+///
+/// Result of a SET operation. Can be either:
+/// - **Success**: Operation completed successfully (no data returned)
+/// - **DataAccessResult**: Error code indicating why the access failed
+///
+/// # Why This Design?
+/// SET operations typically don't return data on success, only error codes on failure.
+/// This CHOICE type allows representing both success and failure cases in a type-safe manner.
+///
+/// # Optimization Considerations
+/// - Using an enum instead of separate success/error fields reduces memory overhead
+/// - The error code is a simple u8, avoiding unnecessary allocations
+/// - Future optimization: Consider using a custom error type with more context
+#[derive(Debug, Clone, PartialEq)]
+pub enum SetDataResult {
+    /// Operation succeeded
+    Success,
+    /// Data access error code
+    DataAccessResult(u8),
+}
+
+impl SetDataResult {
+    /// Create a new SetDataResult with success
+    pub fn new_success() -> Self {
+        Self::Success
+    }
+
+    /// Create a new SetDataResult with error code
+    pub fn new_error(code: u8) -> Self {
+        Self::DataAccessResult(code)
+    }
+
+    /// Check if this is a success result
+    pub fn is_success(&self) -> bool {
+        matches!(self, Self::Success)
+    }
+
+    /// Get the error code if this is an error result
+    pub fn error_code(&self) -> Option<u8> {
+        match self {
+            Self::DataAccessResult(code) => Some(*code),
+            _ => None,
+        }
+    }
+
+    /// Encode to A-XDR format
+    ///
+    /// Encoding format (A-XDR CHOICE):
+    /// - Success: tag 0 (no value)
+    /// - DataAccessResult: tag 1 + error code (Unsigned8)
+    pub fn encode(&self) -> DlmsResult<Vec<u8>> {
+        let mut encoder = AxdrEncoder::new();
+
+        match self {
+            SetDataResult::Success => {
+                // Encode choice tag (0 = Success)
+                encoder.encode_u8(0)?;
+            }
+            SetDataResult::DataAccessResult(code) => {
+                // Encode value first (A-XDR reverse order)
+                encoder.encode_u8(*code)?;
+                // Encode choice tag (1 = DataAccessResult)
+                encoder.encode_u8(1)?;
+            }
+        }
+
+        Ok(encoder.into_bytes())
+    }
+
+    /// Decode from A-XDR format
+    pub fn decode(data: &[u8]) -> DlmsResult<Self> {
+        let mut decoder = AxdrDecoder::new(data);
+
+        // Decode choice tag first (A-XDR reverse order)
+        let choice_tag = decoder.decode_u8()?;
+
+        match choice_tag {
+            0 => Ok(Self::Success),
+            1 => {
+                // DataAccessResult variant
+                let code = decoder.decode_u8()?;
+                Ok(Self::DataAccessResult(code))
+            }
+            _ => Err(DlmsError::InvalidData(format!(
+                "Invalid SetDataResult choice tag: {} (expected 0 or 1)",
+                choice_tag
+            ))),
+        }
+    }
+}
+
+/// COSEM Method Descriptor
+///
+/// Describes a method to be invoked on a COSEM object. Similar to `CosemAttributeDescriptor`
+/// but for method calls instead of attribute access.
+///
+/// # Structure
+/// - `class_id`: COSEM interface class identifier (Unsigned16)
+/// - `instance_id`: Object instance identifier (OBIS code for LN, base name for SN)
+/// - `method_id`: Method identifier within the class (Unsigned8)
+///
+/// # Addressing Methods
+/// Supports both Logical Name (LN) and Short Name (SN) addressing, similar to
+/// `CosemAttributeDescriptor`. The addressing method is determined by the instance_id length
+/// (6 bytes for LN, 2 bytes for SN).
+///
+/// # Why Enum for Addressing?
+/// Using an enum (`LogicalName` vs `ShortName`) provides compile-time type safety and
+/// prevents mixing addressing methods. This is more robust than using a single struct
+/// with a flag.
+///
+/// # Optimization Considerations
+/// - Method descriptors are typically created once and reused, so cloning overhead is minimal
+/// - Future optimization: Consider caching encoded descriptors for frequently used methods
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum CosemMethodDescriptor {
+    /// Logical Name addressing
+    LogicalName(LogicalNameReference),
+    /// Short Name addressing
+    ShortName(ShortNameReference),
+}
+
+impl CosemMethodDescriptor {
+    /// Create a new method descriptor using Logical Name addressing
+    ///
+    /// # Arguments
+    /// * `class_id` - COSEM interface class ID
+    /// * `instance_id` - OBIS code (6 bytes)
+    /// * `method_id` - Method ID within the class
+    pub fn new_logical_name(
+        class_id: u16,
+        instance_id: ObisCode,
+        method_id: u8,
+    ) -> DlmsResult<Self> {
+        Ok(Self::LogicalName(LogicalNameReference::new(
+            class_id,
+            instance_id,
+            method_id,
+        )?))
+    }
+
+    /// Create a new method descriptor using Short Name addressing
+    ///
+    /// # Arguments
+    /// * `base_name` - Base name (16-bit address)
+    /// * `method_id` - Method ID within the class
+    pub fn new_short_name(base_name: u16, method_id: u8) -> DlmsResult<Self> {
+        Ok(Self::ShortName(ShortNameReference::new(base_name, method_id)?))
+    }
+
+    /// Encode to A-XDR format
+    ///
+    /// Encoding format (A-XDR, reverse order):
+    /// 1. method_id (Integer8)
+    /// 2. instance_id (OctetString, 6 bytes for LN, 2 bytes for SN)
+    /// 3. class_id (Unsigned16)
+    ///
+    /// # Why This Order?
+    /// A-XDR encodes SEQUENCE fields in reverse order (last field first) for efficiency.
+    pub fn encode(&self) -> DlmsResult<Vec<u8>> {
+        let mut encoder = AxdrEncoder::new();
+
+        match self {
+            CosemMethodDescriptor::LogicalName(ref ln_ref) => {
+                // Encode in reverse order
+                // 1. method_id (Integer8)
+                encoder.encode_i8(ln_ref.id as i8)?;
+
+                // 2. instance_id (OctetString, 6 bytes for OBIS code)
+                let obis_bytes = ln_ref.instance_id.as_bytes();
+                encoder.encode_octet_string(obis_bytes)?;
+
+                // 3. class_id (Unsigned16)
+                encoder.encode_u16(ln_ref.class_id)?;
+            }
+            CosemMethodDescriptor::ShortName(ref sn_ref) => {
+                // Encode in reverse order
+                // 1. method_id (Integer8)
+                encoder.encode_i8(sn_ref.id as i8)?;
+
+                // 2. instance_id (OctetString, 2 bytes for base name)
+                encoder.encode_octet_string(&sn_ref.base_name.to_be_bytes())?;
+
+                // 3. class_id (Unsigned16)
+                // Note: For SN addressing, class_id is typically 0 or not used
+                encoder.encode_u16(0)?;
+            }
+        }
+
+        Ok(encoder.into_bytes())
+    }
+
+    /// Decode from A-XDR format
+    ///
+    /// # Decoding Strategy
+    /// The decoder determines the addressing method by checking the instance_id length:
+    /// - 6 bytes: Logical Name addressing
+    /// - 2 bytes: Short Name addressing
+    pub fn decode(data: &[u8]) -> DlmsResult<Self> {
+        let mut decoder = AxdrDecoder::new(data);
+
+        // Decode in reverse order
+        // 1. class_id (Unsigned16)
+        let class_id = decoder.decode_u16()?;
+
+        // 2. instance_id (OctetString)
+        let instance_bytes = decoder.decode_octet_string()?;
+
+        // 3. method_id (Integer8)
+        let method_id = decoder.decode_i8()? as u8;
+
+        // Determine addressing method by instance_id length
+        match instance_bytes.len() {
+            6 => {
+                // Logical Name addressing
+                let instance_id = ObisCode::new(
+                    instance_bytes[0],
+                    instance_bytes[1],
+                    instance_bytes[2],
+                    instance_bytes[3],
+                    instance_bytes[4],
+                    instance_bytes[5],
+                );
+                Ok(Self::LogicalName(LogicalNameReference::new(
+                    class_id,
+                    instance_id,
+                    method_id,
+                )?))
+            }
+            2 => {
+                // Short Name addressing
+                let base_name = u16::from_be_bytes([instance_bytes[0], instance_bytes[1]]);
+                Ok(Self::ShortName(ShortNameReference::new(base_name, method_id)?))
+            }
+            _ => Err(DlmsError::InvalidData(format!(
+                "Invalid instance_id length: expected 2 or 6 bytes, got {}",
+                instance_bytes.len()
+            ))),
+        }
+    }
+}
+
+/// Set Request Normal
+///
+/// Single attribute SET request. This is the most common SET request type.
+///
+/// # Structure
+/// - `invoke_id_and_priority`: Invoke ID and priority
+/// - `cosem_attribute_descriptor`: Attribute to write
+/// - `access_selection`: Optional selective access descriptor
+/// - `value`: Data value to write (DataObject)
+///
+/// # Why Separate from GetRequest?
+/// SET operations require a value to write, which GET operations don't need. Separating
+/// these into distinct types provides better type safety and clearer API semantics.
+///
+/// # Optimization Considerations
+/// - The `value` field is a `DataObject`, which may contain large data. Consider using
+///   `Bytes` or `BytesMut` for zero-copy operations in high-frequency scenarios.
+/// - Selective access is optional, so we use `Option` to avoid unnecessary allocations
+///   when not needed.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SetRequestNormal {
+    /// Invoke ID and priority
+    pub invoke_id_and_priority: InvokeIdAndPriority,
+    /// Attribute descriptor
+    pub cosem_attribute_descriptor: CosemAttributeDescriptor,
+    /// Optional selective access descriptor
+    pub access_selection: Option<SelectiveAccessDescriptor>,
+    /// Value to write
+    pub value: DataObject,
+}
+
+impl SetRequestNormal {
+    /// Create a new SetRequestNormal
+    pub fn new(
+        invoke_id_and_priority: InvokeIdAndPriority,
+        cosem_attribute_descriptor: CosemAttributeDescriptor,
+        access_selection: Option<SelectiveAccessDescriptor>,
+        value: DataObject,
+    ) -> Self {
+        Self {
+            invoke_id_and_priority,
+            cosem_attribute_descriptor,
+            access_selection,
+            value,
+        }
+    }
+
+    /// Encode to A-XDR format
+    ///
+    /// Encoding order (A-XDR, reverse order):
+    /// 1. value (DataObject)
+    /// 2. access_selection (optional SelectiveAccessDescriptor)
+    /// 3. cosem_attribute_descriptor (CosemAttributeDescriptor)
+    /// 4. invoke_id_and_priority (InvokeIdAndPriority)
+    pub fn encode(&self) -> DlmsResult<Vec<u8>> {
+        let mut encoder = AxdrEncoder::new();
+
+        // Encode in reverse order
+        // 1. value (DataObject)
+        encoder.encode_data_object(&self.value)?;
+
+        // 2. access_selection (optional SelectiveAccessDescriptor)
+        encoder.encode_bool(self.access_selection.is_some())?;
+        if let Some(ref access) = self.access_selection {
+            let access_bytes = access.encode()?;
+            encoder.encode_bytes(&access_bytes)?;
+        }
+
+        // 3. cosem_attribute_descriptor (CosemAttributeDescriptor)
+        let attr_bytes = self.cosem_attribute_descriptor.encode()?;
+        encoder.encode_bytes(&attr_bytes)?;
+
+        // 4. invoke_id_and_priority (InvokeIdAndPriority)
+        let invoke_bytes = self.invoke_id_and_priority.encode()?;
+        encoder.encode_bytes(&invoke_bytes)?;
+
+        Ok(encoder.into_bytes())
+    }
+
+    /// Decode from A-XDR format
+    pub fn decode(data: &[u8]) -> DlmsResult<Self> {
+        let mut decoder = AxdrDecoder::new(data);
+
+        // Decode in reverse order
+        // 1. invoke_id_and_priority (InvokeIdAndPriority)
+        let invoke_bytes = decoder.decode_octet_string()?;
+        let invoke_id_and_priority = InvokeIdAndPriority::decode(&invoke_bytes)?;
+
+        // 2. cosem_attribute_descriptor (CosemAttributeDescriptor)
+        let attr_bytes = decoder.decode_octet_string()?;
+        let cosem_attribute_descriptor = CosemAttributeDescriptor::decode(&attr_bytes)?;
+
+        // 3. access_selection (optional SelectiveAccessDescriptor)
+        let has_access = decoder.decode_bool()?;
+        let access_selection = if has_access {
+            let access_bytes = decoder.decode_octet_string()?;
+            Some(SelectiveAccessDescriptor::decode(&access_bytes)?)
+        } else {
+            None
+        };
+
+        // 4. value (DataObject)
+        let value = decoder.decode_data_object()?;
+
+        Ok(Self {
+            invoke_id_and_priority,
+            cosem_attribute_descriptor,
+            access_selection,
+            value,
+        })
+    }
+}
+
+/// Set Response Normal
+///
+/// Single attribute SET response. Contains the result of a SetRequestNormal.
+///
+/// # Why Simpler than GetResponse?
+/// SET operations typically don't return data on success, only error codes. This makes
+/// the response structure simpler than GET responses, which need to return actual data.
+///
+/// # Optimization Considerations
+/// - The result is a simple enum, minimizing memory overhead
+/// - Error codes are encoded as single bytes, keeping the response compact
+#[derive(Debug, Clone, PartialEq)]
+pub struct SetResponseNormal {
+    /// Invoke ID and priority
+    pub invoke_id_and_priority: InvokeIdAndPriority,
+    /// Result of the SET operation
+    pub result: SetDataResult,
+}
+
+impl SetResponseNormal {
+    /// Create a new SetResponseNormal
+    pub fn new(invoke_id_and_priority: InvokeIdAndPriority, result: SetDataResult) -> Self {
+        Self {
+            invoke_id_and_priority,
+            result,
+        }
+    }
+
+    /// Encode to A-XDR format
+    ///
+    /// Encoding order (A-XDR, reverse order):
+    /// 1. result (SetDataResult)
+    /// 2. invoke_id_and_priority (InvokeIdAndPriority)
+    pub fn encode(&self) -> DlmsResult<Vec<u8>> {
+        let mut encoder = AxdrEncoder::new();
+
+        // Encode in reverse order
+        // 1. result (SetDataResult)
+        let result_bytes = self.result.encode()?;
+        encoder.encode_bytes(&result_bytes)?;
+
+        // 2. invoke_id_and_priority (InvokeIdAndPriority)
+        let invoke_bytes = self.invoke_id_and_priority.encode()?;
+        encoder.encode_bytes(&invoke_bytes)?;
+
+        Ok(encoder.into_bytes())
+    }
+
+    /// Decode from A-XDR format
+    pub fn decode(data: &[u8]) -> DlmsResult<Self> {
+        let mut decoder = AxdrDecoder::new(data);
+
+        // Decode in reverse order
+        // 1. invoke_id_and_priority (InvokeIdAndPriority)
+        let invoke_bytes = decoder.decode_octet_string()?;
+        let invoke_id_and_priority = InvokeIdAndPriority::decode(&invoke_bytes)?;
+
+        // 2. result (SetDataResult)
+        let result_bytes = decoder.decode_octet_string()?;
+        let result = SetDataResult::decode(&result_bytes)?;
+
+        Ok(Self {
+            invoke_id_and_priority,
+            result,
+        })
+    }
+}
+
+/// Set Request PDU
+///
+/// CHOICE type representing different SET request variants:
+/// - **Normal**: Single attribute SET request
+/// - **WithFirstDataBlock**: First data block SET request (for large values)
+/// - **WithDataBlock**: Continue data block SET request
+/// - **WithList**: Multiple attribute SET request
+///
+/// # Why CHOICE Type?
+/// Different SET scenarios require different request structures. Using a CHOICE type
+/// allows the protocol to handle both simple single-attribute writes and complex
+/// multi-attribute or large-value writes efficiently.
+///
+/// # Current Implementation Status
+/// Currently only the `Normal` variant is implemented. Other variants (WithDataBlock,
+/// WithList) are planned for future implementation to support large data transfers
+/// and batch operations.
+#[derive(Debug, Clone, PartialEq)]
+pub enum SetRequest {
+    /// Single attribute SET request
+    Normal(SetRequestNormal),
+    // TODO: Implement other variants
+    // WithFirstDataBlock { ... },
+    // WithDataBlock { ... },
+    // WithList { ... },
+}
+
+impl SetRequest {
+    /// Create a new Normal SET request
+    pub fn new_normal(
+        invoke_id_and_priority: InvokeIdAndPriority,
+        cosem_attribute_descriptor: CosemAttributeDescriptor,
+        access_selection: Option<SelectiveAccessDescriptor>,
+        value: DataObject,
+    ) -> Self {
+        Self::Normal(SetRequestNormal::new(
+            invoke_id_and_priority,
+            cosem_attribute_descriptor,
+            access_selection,
+            value,
+        ))
+    }
+
+    /// Encode to A-XDR format
+    pub fn encode(&self) -> DlmsResult<Vec<u8>> {
+        let mut encoder = AxdrEncoder::new();
+
+        match self {
+            SetRequest::Normal(normal) => {
+                // Encode value first (A-XDR reverse order)
+                let normal_bytes = normal.encode()?;
+                encoder.encode_bytes(&normal_bytes)?;
+                // Encode choice tag (1 = Normal)
+                encoder.encode_u8(1)?;
+            }
+        }
+
+        Ok(encoder.into_bytes())
+    }
+
+    /// Decode from A-XDR format
+    pub fn decode(data: &[u8]) -> DlmsResult<Self> {
+        let mut decoder = AxdrDecoder::new(data);
+
+        // Decode choice tag first (A-XDR reverse order)
+        let choice_tag = decoder.decode_u8()?;
+
+        match choice_tag {
+            1 => {
+                // Normal variant
+                let normal_bytes = decoder.decode_octet_string()?;
+                let normal = SetRequestNormal::decode(&normal_bytes)?;
+                Ok(Self::Normal(normal))
+            }
+            _ => Err(DlmsError::InvalidData(format!(
+                "Invalid SetRequest choice tag: {} (expected 1)",
+                choice_tag
+            ))),
+        }
+    }
+}
+
+/// Set Response PDU
+///
+/// CHOICE type representing different SET response variants:
+/// - **Normal**: Single attribute SET response
+/// - **WithDataBlock**: Data block SET response
+/// - **WithList**: Multiple attribute SET response
+#[derive(Debug, Clone, PartialEq)]
+pub enum SetResponse {
+    /// Single attribute SET response
+    Normal(SetResponseNormal),
+    // TODO: Implement other variants
+    // WithDataBlock { ... },
+    // WithList { ... },
+}
+
+impl SetResponse {
+    /// Create a new Normal SET response
+    pub fn new_normal(invoke_id_and_priority: InvokeIdAndPriority, result: SetDataResult) -> Self {
+        Self::Normal(SetResponseNormal::new(invoke_id_and_priority, result))
+    }
+
+    /// Encode to A-XDR format
+    pub fn encode(&self) -> DlmsResult<Vec<u8>> {
+        let mut encoder = AxdrEncoder::new();
+
+        match self {
+            SetResponse::Normal(normal) => {
+                // Encode value first (A-XDR reverse order)
+                let normal_bytes = normal.encode()?;
+                encoder.encode_bytes(&normal_bytes)?;
+                // Encode choice tag (1 = Normal)
+                encoder.encode_u8(1)?;
+            }
+        }
+
+        Ok(encoder.into_bytes())
+    }
+
+    /// Decode from A-XDR format
+    pub fn decode(data: &[u8]) -> DlmsResult<Self> {
+        let mut decoder = AxdrDecoder::new(data);
+
+        // Decode choice tag first (A-XDR reverse order)
+        let choice_tag = decoder.decode_u8()?;
+
+        match choice_tag {
+            1 => {
+                // Normal variant
+                let normal_bytes = decoder.decode_octet_string()?;
+                let normal = SetResponseNormal::decode(&normal_bytes)?;
+                Ok(Self::Normal(normal))
+            }
+            _ => Err(DlmsError::InvalidData(format!(
+                "Invalid SetResponse choice tag: {} (expected 1)",
+                choice_tag
+            ))),
+        }
+    }
+}
+
+// ============================================================================
+// Action Request/Response PDU Implementation
+// ============================================================================
+
+/// Action Result
+///
+/// Result of an ACTION operation. Can be either:
+/// - **Success with data**: Operation completed successfully and returned data
+/// - **Success without data**: Operation completed successfully (no data returned)
+/// - **DataAccessResult**: Error code indicating why the access failed
+///
+/// # Why This Design?
+/// ACTION operations can return data (unlike SET operations), so we need to support
+/// both success with data and success without data cases. This three-way CHOICE
+/// provides clear semantics for all possible outcomes.
+///
+/// # Optimization Considerations
+/// - The `SuccessWithData` variant contains a `DataObject`, which may be large.
+///   Consider using `Arc<DataObject>` or `Bytes` for zero-copy sharing if the
+///   result is used in multiple places.
+/// - Error codes are simple u8 values, keeping the error case lightweight
+#[derive(Debug, Clone, PartialEq)]
+pub enum ActionResult {
+    /// Operation succeeded with returned data
+    SuccessWithData(DataObject),
+    /// Operation succeeded without data
+    Success,
+    /// Data access error code
+    DataAccessResult(u8),
+}
+
+impl ActionResult {
+    /// Create a new ActionResult with success and data
+    pub fn new_success_with_data(data: DataObject) -> Self {
+        Self::SuccessWithData(data)
+    }
+
+    /// Create a new ActionResult with success (no data)
+    pub fn new_success() -> Self {
+        Self::Success
+    }
+
+    /// Create a new ActionResult with error code
+    pub fn new_error(code: u8) -> Self {
+        Self::DataAccessResult(code)
+    }
+
+    /// Check if this is a success result
+    pub fn is_success(&self) -> bool {
+        matches!(self, Self::Success | Self::SuccessWithData(_))
+    }
+
+    /// Get the error code if this is an error result
+    pub fn error_code(&self) -> Option<u8> {
+        match self {
+            Self::DataAccessResult(code) => Some(*code),
+            _ => None,
+        }
+    }
+
+    /// Get the data if this is a success result with data
+    pub fn data(&self) -> Option<&DataObject> {
+        match self {
+            Self::SuccessWithData(data) => Some(data),
+            _ => None,
+        }
+    }
+
+    /// Encode to A-XDR format
+    ///
+    /// Encoding format (A-XDR CHOICE):
+    /// - SuccessWithData: tag 1 + DataObject
+    /// - Success: tag 0 (no value)
+    /// - DataAccessResult: tag 2 + error code (Unsigned8)
+    pub fn encode(&self) -> DlmsResult<Vec<u8>> {
+        let mut encoder = AxdrEncoder::new();
+
+        match self {
+            ActionResult::SuccessWithData(data) => {
+                // Encode value first (A-XDR reverse order)
+                encoder.encode_data_object(data)?;
+                // Encode choice tag (1 = SuccessWithData)
+                encoder.encode_u8(1)?;
+            }
+            ActionResult::Success => {
+                // Encode choice tag (0 = Success)
+                encoder.encode_u8(0)?;
+            }
+            ActionResult::DataAccessResult(code) => {
+                // Encode value first (A-XDR reverse order)
+                encoder.encode_u8(*code)?;
+                // Encode choice tag (2 = DataAccessResult)
+                encoder.encode_u8(2)?;
+            }
+        }
+
+        Ok(encoder.into_bytes())
+    }
+
+    /// Decode from A-XDR format
+    pub fn decode(data: &[u8]) -> DlmsResult<Self> {
+        let mut decoder = AxdrDecoder::new(data);
+
+        // Decode choice tag first (A-XDR reverse order)
+        let choice_tag = decoder.decode_u8()?;
+
+        match choice_tag {
+            0 => Ok(Self::Success),
+            1 => {
+                // SuccessWithData variant
+                let data_obj = decoder.decode_data_object()?;
+                Ok(Self::SuccessWithData(data_obj))
+            }
+            2 => {
+                // DataAccessResult variant
+                let code = decoder.decode_u8()?;
+                Ok(Self::DataAccessResult(code))
+            }
+            _ => Err(DlmsError::InvalidData(format!(
+                "Invalid ActionResult choice tag: {} (expected 0, 1, or 2)",
+                choice_tag
+            ))),
+        }
+    }
+}
+
+/// Action Request Normal
+///
+/// Single method ACTION request. This is the most common ACTION request type.
+///
+/// # Structure
+/// - `invoke_id_and_priority`: Invoke ID and priority
+/// - `cosem_method_descriptor`: Method to invoke
+/// - `method_invocation_parameters`: Optional method parameters (DataObject)
+///
+/// # Why Optional Parameters?
+/// Not all methods require parameters. Making parameters optional allows the protocol
+/// to efficiently handle both parameterized and non-parameterized method calls.
+///
+/// # Optimization Considerations
+/// - Method parameters are encoded as `DataObject`, which provides flexibility but
+///   may have encoding overhead. For high-frequency operations, consider caching
+///   encoded parameter representations.
+/// - The descriptor is cloned during encoding, but this is typically acceptable
+///   as ACTION requests are less frequent than GET/SET operations.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ActionRequestNormal {
+    /// Invoke ID and priority
+    pub invoke_id_and_priority: InvokeIdAndPriority,
+    /// Method descriptor
+    pub cosem_method_descriptor: CosemMethodDescriptor,
+    /// Optional method invocation parameters
+    pub method_invocation_parameters: Option<DataObject>,
+}
+
+impl ActionRequestNormal {
+    /// Create a new ActionRequestNormal
+    pub fn new(
+        invoke_id_and_priority: InvokeIdAndPriority,
+        cosem_method_descriptor: CosemMethodDescriptor,
+        method_invocation_parameters: Option<DataObject>,
+    ) -> Self {
+        Self {
+            invoke_id_and_priority,
+            cosem_method_descriptor,
+            method_invocation_parameters,
+        }
+    }
+
+    /// Encode to A-XDR format
+    ///
+    /// Encoding order (A-XDR, reverse order):
+    /// 1. method_invocation_parameters (optional DataObject)
+    /// 2. cosem_method_descriptor (CosemMethodDescriptor)
+    /// 3. invoke_id_and_priority (InvokeIdAndPriority)
+    pub fn encode(&self) -> DlmsResult<Vec<u8>> {
+        let mut encoder = AxdrEncoder::new();
+
+        // Encode in reverse order
+        // 1. method_invocation_parameters (optional DataObject)
+        encoder.encode_bool(self.method_invocation_parameters.is_some())?;
+        if let Some(ref params) = self.method_invocation_parameters {
+            encoder.encode_data_object(params)?;
+        }
+
+        // 2. cosem_method_descriptor (CosemMethodDescriptor)
+        let method_bytes = self.cosem_method_descriptor.encode()?;
+        encoder.encode_bytes(&method_bytes)?;
+
+        // 3. invoke_id_and_priority (InvokeIdAndPriority)
+        let invoke_bytes = self.invoke_id_and_priority.encode()?;
+        encoder.encode_bytes(&invoke_bytes)?;
+
+        Ok(encoder.into_bytes())
+    }
+
+    /// Decode from A-XDR format
+    pub fn decode(data: &[u8]) -> DlmsResult<Self> {
+        let mut decoder = AxdrDecoder::new(data);
+
+        // Decode in reverse order
+        // 1. invoke_id_and_priority (InvokeIdAndPriority)
+        let invoke_bytes = decoder.decode_octet_string()?;
+        let invoke_id_and_priority = InvokeIdAndPriority::decode(&invoke_bytes)?;
+
+        // 2. cosem_method_descriptor (CosemMethodDescriptor)
+        let method_bytes = decoder.decode_octet_string()?;
+        let cosem_method_descriptor = CosemMethodDescriptor::decode(&method_bytes)?;
+
+        // 3. method_invocation_parameters (optional DataObject)
+        let has_params = decoder.decode_bool()?;
+        let method_invocation_parameters = if has_params {
+            Some(decoder.decode_data_object()?)
+        } else {
+            None
+        };
+
+        Ok(Self {
+            invoke_id_and_priority,
+            cosem_method_descriptor,
+            method_invocation_parameters,
+        })
+    }
+}
+
+/// Action Response Normal
+///
+/// Single method ACTION response. Contains the result of an ActionRequestNormal.
+///
+/// # Why Different from SetResponse?
+/// ACTION operations can return data, unlike SET operations. The `ActionResult` enum
+/// supports both success with data and success without data cases, making it more
+/// flexible than `SetDataResult`.
+///
+/// # Optimization Considerations
+/// - The result may contain large data objects. Consider using reference counting
+///   or zero-copy types if the result is processed in multiple stages.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ActionResponseNormal {
+    /// Invoke ID and priority
+    pub invoke_id_and_priority: InvokeIdAndPriority,
+    /// Result of the ACTION operation
+    pub result: ActionResult,
+}
+
+impl ActionResponseNormal {
+    /// Create a new ActionResponseNormal
+    pub fn new(invoke_id_and_priority: InvokeIdAndPriority, result: ActionResult) -> Self {
+        Self {
+            invoke_id_and_priority,
+            result,
+        }
+    }
+
+    /// Encode to A-XDR format
+    ///
+    /// Encoding order (A-XDR, reverse order):
+    /// 1. result (ActionResult)
+    /// 2. invoke_id_and_priority (InvokeIdAndPriority)
+    pub fn encode(&self) -> DlmsResult<Vec<u8>> {
+        let mut encoder = AxdrEncoder::new();
+
+        // Encode in reverse order
+        // 1. result (ActionResult)
+        let result_bytes = self.result.encode()?;
+        encoder.encode_bytes(&result_bytes)?;
+
+        // 2. invoke_id_and_priority (InvokeIdAndPriority)
+        let invoke_bytes = self.invoke_id_and_priority.encode()?;
+        encoder.encode_bytes(&invoke_bytes)?;
+
+        Ok(encoder.into_bytes())
+    }
+
+    /// Decode from A-XDR format
+    pub fn decode(data: &[u8]) -> DlmsResult<Self> {
+        let mut decoder = AxdrDecoder::new(data);
+
+        // Decode in reverse order
+        // 1. invoke_id_and_priority (InvokeIdAndPriority)
+        let invoke_bytes = decoder.decode_octet_string()?;
+        let invoke_id_and_priority = InvokeIdAndPriority::decode(&invoke_bytes)?;
+
+        // 2. result (ActionResult)
+        let result_bytes = decoder.decode_octet_string()?;
+        let result = ActionResult::decode(&result_bytes)?;
+
+        Ok(Self {
+            invoke_id_and_priority,
+            result,
+        })
+    }
+}
+
+/// Action Request PDU
+///
+/// CHOICE type representing different ACTION request variants:
+/// - **Normal**: Single method ACTION request
+/// - **WithFirstPBlock**: First parameter block ACTION request (for large parameters)
+/// - **WithPBlock**: Continue parameter block ACTION request
+/// - **NextPBlock**: Next parameter block request
+/// - **WithList**: Multiple method ACTION request
+///
+/// # Why Parameter Blocks?
+/// Some methods may require large parameters that exceed the maximum PDU size. Parameter
+/// blocks allow splitting large parameters across multiple requests, similar to data
+/// blocks in GET/SET operations.
+///
+/// # Current Implementation Status
+/// Currently only the `Normal` variant is implemented. Other variants are planned
+/// for future implementation to support large parameter transfers and batch operations.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ActionRequest {
+    /// Single method ACTION request
+    Normal(ActionRequestNormal),
+    // TODO: Implement other variants
+    // WithFirstPBlock { ... },
+    // WithPBlock { ... },
+    // NextPBlock { ... },
+    // WithList { ... },
+}
+
+impl ActionRequest {
+    /// Create a new Normal ACTION request
+    pub fn new_normal(
+        invoke_id_and_priority: InvokeIdAndPriority,
+        cosem_method_descriptor: CosemMethodDescriptor,
+        method_invocation_parameters: Option<DataObject>,
+    ) -> Self {
+        Self::Normal(ActionRequestNormal::new(
+            invoke_id_and_priority,
+            cosem_method_descriptor,
+            method_invocation_parameters,
+        ))
+    }
+
+    /// Encode to A-XDR format
+    pub fn encode(&self) -> DlmsResult<Vec<u8>> {
+        let mut encoder = AxdrEncoder::new();
+
+        match self {
+            ActionRequest::Normal(normal) => {
+                // Encode value first (A-XDR reverse order)
+                let normal_bytes = normal.encode()?;
+                encoder.encode_bytes(&normal_bytes)?;
+                // Encode choice tag (1 = Normal)
+                encoder.encode_u8(1)?;
+            }
+        }
+
+        Ok(encoder.into_bytes())
+    }
+
+    /// Decode from A-XDR format
+    pub fn decode(data: &[u8]) -> DlmsResult<Self> {
+        let mut decoder = AxdrDecoder::new(data);
+
+        // Decode choice tag first (A-XDR reverse order)
+        let choice_tag = decoder.decode_u8()?;
+
+        match choice_tag {
+            1 => {
+                // Normal variant
+                let normal_bytes = decoder.decode_octet_string()?;
+                let normal = ActionRequestNormal::decode(&normal_bytes)?;
+                Ok(Self::Normal(normal))
+            }
+            _ => Err(DlmsError::InvalidData(format!(
+                "Invalid ActionRequest choice tag: {} (expected 1)",
+                choice_tag
+            ))),
+        }
+    }
+}
+
+/// Action Response PDU
+///
+/// CHOICE type representing different ACTION response variants:
+/// - **Normal**: Single method ACTION response
+/// - **WithPBlock**: Parameter block ACTION response
+/// - **NextPBlock**: Next parameter block response
+/// - **WithList**: Multiple method ACTION response
+#[derive(Debug, Clone, PartialEq)]
+pub enum ActionResponse {
+    /// Single method ACTION response
+    Normal(ActionResponseNormal),
+    // TODO: Implement other variants
+    // WithPBlock { ... },
+    // NextPBlock { ... },
+    // WithList { ... },
+}
+
+impl ActionResponse {
+    /// Create a new Normal ACTION response
+    pub fn new_normal(invoke_id_and_priority: InvokeIdAndPriority, result: ActionResult) -> Self {
+        Self::Normal(ActionResponseNormal::new(invoke_id_and_priority, result))
+    }
+
+    /// Encode to A-XDR format
+    pub fn encode(&self) -> DlmsResult<Vec<u8>> {
+        let mut encoder = AxdrEncoder::new();
+
+        match self {
+            ActionResponse::Normal(normal) => {
+                // Encode value first (A-XDR reverse order)
+                let normal_bytes = normal.encode()?;
+                encoder.encode_bytes(&normal_bytes)?;
+                // Encode choice tag (1 = Normal)
+                encoder.encode_u8(1)?;
+            }
+        }
+
+        Ok(encoder.into_bytes())
+    }
+
+    /// Decode from A-XDR format
+    pub fn decode(data: &[u8]) -> DlmsResult<Self> {
+        let mut decoder = AxdrDecoder::new(data);
+
+        // Decode choice tag first (A-XDR reverse order)
+        let choice_tag = decoder.decode_u8()?;
+
+        match choice_tag {
+            1 => {
+                // Normal variant
+                let normal_bytes = decoder.decode_octet_string()?;
+                let normal = ActionResponseNormal::decode(&normal_bytes)?;
+                Ok(Self::Normal(normal))
+            }
+            _ => Err(DlmsError::InvalidData(format!(
+                "Invalid ActionResponse choice tag: {} (expected 1)",
+                choice_tag
+            ))),
+        }
+    }
+}
+
+// ============================================================================
+// Event Notification PDU Implementation
+// ============================================================================
+
+/// Event Notification PDU
+///
+/// Asynchronous event notification sent by the server to the client when an event occurs.
+/// This is an unconfirmed service, meaning the client does not send a response.
+///
+/// # Structure
+/// - `time`: Time when the event occurred (optional CosemDateTime)
+/// - `cosem_attribute_descriptor`: Attribute that triggered the event
+/// - `attribute_value`: Value of the attribute at the time of the event
+///
+/// # Why Unconfirmed Service?
+/// Event notifications are fire-and-forget messages. The server doesn't wait for
+/// acknowledgment, allowing for efficient asynchronous event reporting. This design
+/// reduces latency and overhead for time-sensitive events like alarms or state changes.
+///
+/// # Why Optional Time?
+/// Not all events require precise timestamps. Making time optional allows the protocol
+/// to efficiently handle both timestamped and non-timestamped events. When time is
+/// provided, it uses COSEM DateTime format (12 bytes) for consistency with other
+/// time-related attributes.
+///
+/// # Optimization Considerations
+/// - Event notifications are typically infrequent, so performance is less critical
+/// - The attribute value may be large, but this is acceptable for event reporting
+/// - Future optimization: Consider using a ring buffer or queue for high-frequency
+///   event scenarios to avoid blocking the main communication channel
+#[derive(Debug, Clone, PartialEq)]
+pub struct EventNotification {
+    /// Optional time when the event occurred
+    pub time: Option<dlms_core::datatypes::CosemDateTime>,
+    /// Attribute descriptor that triggered the event
+    pub cosem_attribute_descriptor: CosemAttributeDescriptor,
+    /// Attribute value at the time of the event
+    pub attribute_value: DataObject,
+}
+
+impl EventNotification {
+    /// Create a new EventNotification
+    pub fn new(
+        time: Option<dlms_core::datatypes::CosemDateTime>,
+        cosem_attribute_descriptor: CosemAttributeDescriptor,
+        attribute_value: DataObject,
+    ) -> Self {
+        Self {
+            time,
+            cosem_attribute_descriptor,
+            attribute_value,
+        }
+    }
+
+    /// Encode to A-XDR format
+    ///
+    /// Encoding order (A-XDR, reverse order):
+    /// 1. attribute_value (DataObject)
+    /// 2. cosem_attribute_descriptor (CosemAttributeDescriptor)
+    /// 3. time (optional CosemDateTime)
+    pub fn encode(&self) -> DlmsResult<Vec<u8>> {
+        let mut encoder = AxdrEncoder::new();
+
+        // Encode in reverse order
+        // 1. attribute_value (DataObject)
+        encoder.encode_data_object(&self.attribute_value)?;
+
+        // 2. cosem_attribute_descriptor (CosemAttributeDescriptor)
+        let attr_bytes = self.cosem_attribute_descriptor.encode()?;
+        encoder.encode_bytes(&attr_bytes)?;
+
+        // 3. time (optional CosemDateTime)
+        encoder.encode_bool(self.time.is_some())?;
+        if let Some(ref dt) = self.time {
+            let time_bytes = dt.encode()?;
+            encoder.encode_bytes(&time_bytes)?;
+        }
+
+        Ok(encoder.into_bytes())
+    }
+
+    /// Decode from A-XDR format
+    pub fn decode(data: &[u8]) -> DlmsResult<Self> {
+        let mut decoder = AxdrDecoder::new(data);
+
+        // Decode in reverse order
+        // 1. time (optional CosemDateTime)
+        let has_time = decoder.decode_bool()?;
+        let time = if has_time {
+            // CosemDateTime is encoded as OctetString (12 bytes)
+            let time_bytes = decoder.decode_octet_string()?;
+            Some(dlms_core::datatypes::CosemDateTime::decode(&time_bytes)?)
+        } else {
+            None
+        };
+
+        // 2. cosem_attribute_descriptor (CosemAttributeDescriptor)
+        let attr_bytes = decoder.decode_octet_string()?;
+        let cosem_attribute_descriptor = CosemAttributeDescriptor::decode(&attr_bytes)?;
+
+        // 3. attribute_value (DataObject)
+        let attribute_value = decoder.decode_data_object()?;
+
+        Ok(Self {
+            time,
+            cosem_attribute_descriptor,
+            attribute_value,
+        })
+    }
+}
+
+// ============================================================================
+// Access Request/Response PDU Implementation
+// ============================================================================
+
+/// Access Request PDU
+///
+/// Used for accessing multiple attributes/methods in a single request.
+/// This is a more general-purpose PDU that can combine GET, SET, and ACTION operations.
+///
+/// # TODO
+/// - [ ] 实现完整的 Access Request 结构
+#[derive(Debug, Clone, PartialEq)]
+pub struct AccessRequest {
+    // TODO: Implement full structure
+    pub invoke_id_and_priority: InvokeIdAndPriority,
+}
+
+impl AccessRequest {
+    /// Encode to A-XDR format
+    pub fn encode(&self) -> DlmsResult<Vec<u8>> {
+        // TODO: Implement encoding
+        Err(DlmsError::InvalidData(
+            "AccessRequest encoding not yet implemented".to_string(),
+        ))
+    }
+
+    /// Decode from A-XDR format
+    pub fn decode(_data: &[u8]) -> DlmsResult<Self> {
+        // TODO: Implement decoding
+        Err(DlmsError::InvalidData(
+            "AccessRequest decoding not yet implemented".to_string(),
+        ))
+    }
+}
+
+/// Access Response PDU
+///
+/// Response to an AccessRequest, containing results for multiple operations.
+///
+/// # TODO
+/// - [ ] 实现完整的 Access Response 结构
+#[derive(Debug, Clone, PartialEq)]
+pub struct AccessResponse {
+    // TODO: Implement full structure
+    pub invoke_id_and_priority: InvokeIdAndPriority,
+}
+
+impl AccessResponse {
+    /// Encode to A-XDR format
+    pub fn encode(&self) -> DlmsResult<Vec<u8>> {
+        // TODO: Implement encoding
+        Err(DlmsError::InvalidData(
+            "AccessResponse encoding not yet implemented".to_string(),
+        ))
+    }
+
+    /// Decode from A-XDR format
+    pub fn decode(_data: &[u8]) -> DlmsResult<Self> {
+        // TODO: Implement decoding
+        Err(DlmsError::InvalidData(
+            "AccessResponse decoding not yet implemented".to_string(),
+        ))
+    }
+}
+
+// ============================================================================
+// Exception Response PDU Implementation
+// ============================================================================
+
+/// Exception Response PDU
+///
+/// Error response sent when a PDU cannot be processed due to a protocol error.
+/// This is different from DataAccessResult, which indicates application-level errors.
+///
+/// # Structure
+/// - `invoke_id_and_priority`: Invoke ID and priority from the original request
+/// - `state_error`: State error code (optional)
+/// - `service_error`: Service error code
+///
+/// # Why Separate from DataAccessResult?
+/// Exception responses indicate protocol-level errors (malformed PDU, invalid state, etc.),
+/// while DataAccessResult indicates application-level errors (object not found, access denied, etc.).
+/// This separation allows the application to distinguish between protocol issues and
+/// application-level access problems, enabling appropriate error handling strategies.
+///
+/// # Optimization Considerations
+/// - Exception responses are rare, so performance is not critical
+/// - The optional state_error field uses `Option` to avoid unnecessary allocations
+/// - Error codes are simple u8 values, keeping the response compact
+#[derive(Debug, Clone, PartialEq)]
+pub struct ExceptionResponse {
+    /// Invoke ID and priority from the original request
+    pub invoke_id_and_priority: InvokeIdAndPriority,
+    /// Optional state error code
+    pub state_error: Option<u8>,
+    /// Service error code
+    pub service_error: u8,
+}
+
+impl ExceptionResponse {
+    /// Create a new ExceptionResponse
+    pub fn new(
+        invoke_id_and_priority: InvokeIdAndPriority,
+        state_error: Option<u8>,
+        service_error: u8,
+    ) -> Self {
+        Self {
+            invoke_id_and_priority,
+            state_error,
+            service_error,
+        }
+    }
+
+    /// Encode to A-XDR format
+    ///
+    /// Encoding order (A-XDR, reverse order):
+    /// 1. service_error (Unsigned8)
+    /// 2. state_error (optional Unsigned8)
+    /// 3. invoke_id_and_priority (InvokeIdAndPriority)
+    pub fn encode(&self) -> DlmsResult<Vec<u8>> {
+        let mut encoder = AxdrEncoder::new();
+
+        // Encode in reverse order
+        // 1. service_error (Unsigned8)
+        encoder.encode_u8(self.service_error)?;
+
+        // 2. state_error (optional Unsigned8)
+        encoder.encode_bool(self.state_error.is_some())?;
+        if let Some(state_err) = self.state_error {
+            encoder.encode_u8(state_err)?;
+        }
+
+        // 3. invoke_id_and_priority (InvokeIdAndPriority)
+        let invoke_bytes = self.invoke_id_and_priority.encode()?;
+        encoder.encode_bytes(&invoke_bytes)?;
+
+        Ok(encoder.into_bytes())
+    }
+
+    /// Decode from A-XDR format
+    pub fn decode(data: &[u8]) -> DlmsResult<Self> {
+        let mut decoder = AxdrDecoder::new(data);
+
+        // Decode in reverse order
+        // 1. invoke_id_and_priority (InvokeIdAndPriority)
+        let invoke_bytes = decoder.decode_octet_string()?;
+        let invoke_id_and_priority = InvokeIdAndPriority::decode(&invoke_bytes)?;
+
+        // 2. state_error (optional Unsigned8)
+        let has_state_error = decoder.decode_bool()?;
+        let state_error = if has_state_error {
+            Some(decoder.decode_u8()?)
+        } else {
+            None
+        };
+
+        // 3. service_error (Unsigned8)
+        let service_error = decoder.decode_u8()?;
+
+        Ok(Self {
+            invoke_id_and_priority,
+            state_error,
+            service_error,
+        })
+    }
 }
