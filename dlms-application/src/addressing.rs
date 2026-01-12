@@ -24,6 +24,7 @@
 //! - Future optimization: Cache OBIS-to-SN mappings to reduce lookup overhead
 
 use dlms_core::{DlmsError, DlmsResult, ObisCode};
+use dlms_core::datatypes::{CosemDateTime, DataObject};
 use dlms_asn1::{AxdrDecoder, AxdrEncoder};
 
 /// Addressing method for DLMS/COSEM objects
@@ -243,29 +244,193 @@ pub enum AccessSelector {
     /// - from_date: Start date/time (inclusive)
     /// - to_date: End date/time (inclusive)
     ///
-    /// # Future Enhancement
-    /// This requires CosemDateTime encoding, which will be added when
-    /// COSEM ASN.1 structures are implemented.
+    /// # Usage
+    /// Used for accessing entries in Profile Generic buffer or similar
+    /// time-series data within a specific date/time range.
     DateRange {
-        from_date: Vec<u8>, // Placeholder - will be CosemDateTime
-        to_date: Vec<u8>,   // Placeholder - will be CosemDateTime
+        from_date: CosemDateTime,
+        to_date: CosemDateTime,
+    },
+    /// Access by value range (for numeric attributes)
+    ///
+    /// Format: [from_value, to_value]
+    /// - from_value: Start value (inclusive)
+    /// - to_value: End value (inclusive)
+    ///
+    /// # Usage
+    /// Used for accessing entries in arrays or tables where values
+    /// fall within a specific numeric range.
+    ValueRange {
+        from_value: DataObject,
+        to_value: DataObject,
     },
 }
 
 impl AccessSelector {
+    /// Create an Entry Index access selector
+    ///
+    /// # Arguments
+    /// * `start_index` - First entry to access (0-based)
+    /// * `count` - Number of entries to access
+    ///
+    /// # Returns
+    /// AccessSelector::EntryIndex variant
+    pub fn entry_index(start_index: u32, count: u32) -> Self {
+        Self::EntryIndex { start_index, count }
+    }
+
+    /// Create a Date Range access selector
+    ///
+    /// # Arguments
+    /// * `from_date` - Start date/time (inclusive)
+    /// * `to_date` - End date/time (inclusive)
+    ///
+    /// # Returns
+    /// AccessSelector::DateRange variant
+    pub fn date_range(from_date: CosemDateTime, to_date: CosemDateTime) -> Self {
+        Self::DateRange { from_date, to_date }
+    }
+
+    /// Create a Value Range access selector
+    ///
+    /// # Arguments
+    /// * `from_value` - Start value (inclusive)
+    /// * `to_value` - End value (inclusive)
+    ///
+    /// # Returns
+    /// AccessSelector::ValueRange variant
+    ///
+    /// # Note
+    /// Both values must be numeric types (Integer, Unsigned, etc.)
+    pub fn value_range(from_value: DataObject, to_value: DataObject) -> Self {
+        Self::ValueRange { from_value, to_value }
+    }
+
+    /// Get the access selector type code
+    ///
+    /// # Returns
+    /// Selector type code:
+    /// - None: None (no selector)
+    /// - EntryIndex: 0
+    /// - DateRange: 1
+    /// - ValueRange: 2
+    pub fn selector_type(&self) -> Option<u8> {
+        match self {
+            AccessSelector::None => None,
+            AccessSelector::EntryIndex { .. } => Some(0),
+            AccessSelector::DateRange { .. } => Some(1),
+            AccessSelector::ValueRange { .. } => Some(2),
+        }
+    }
+
+    /// Convert to SelectiveAccessDescriptor
+    ///
+    /// # Returns
+    /// SelectiveAccessDescriptor if selector is not None, None otherwise
+    pub fn to_selective_access_descriptor(&self) -> DlmsResult<Option<crate::pdu::SelectiveAccessDescriptor>> {
+        use crate::pdu::SelectiveAccessDescriptor;
+        
+        match self {
+            AccessSelector::None => Ok(None),
+            selector => {
+                let selector_type = selector.selector_type().ok_or_else(|| {
+                    DlmsError::InvalidData("Cannot convert None selector to descriptor".to_string())
+                })?;
+                
+                // Encode access parameters as DataObject
+                let access_parameters = match selector {
+                    AccessSelector::EntryIndex { start_index, count } => {
+                        DataObject::new_structure(vec![
+                            DataObject::new_unsigned32(*start_index),
+                            DataObject::new_unsigned32(*count),
+                        ])
+                    }
+                    AccessSelector::DateRange { from_date, to_date } => {
+                        DataObject::new_structure(vec![
+                            DataObject::new_octet_string(from_date.encode()),
+                            DataObject::new_octet_string(to_date.encode()),
+                        ])
+                    }
+                    AccessSelector::ValueRange { from_value, to_value } => {
+                        DataObject::new_structure(vec![
+                            from_value.clone(),
+                            to_value.clone(),
+                        ])
+                    }
+                    AccessSelector::None => unreachable!(),
+                };
+                
+                Ok(Some(SelectiveAccessDescriptor::new(selector_type, access_parameters)))
+            }
+        }
+    }
+
+    /// Create from SelectiveAccessDescriptor
+    ///
+    /// # Arguments
+    /// * `descriptor` - SelectiveAccessDescriptor to convert
+    ///
+    /// # Returns
+    /// AccessSelector variant
+    pub fn from_selective_access_descriptor(descriptor: &crate::pdu::SelectiveAccessDescriptor) -> DlmsResult<Self> {
+        let selector_type = descriptor.access_selector;
+        let params = &descriptor.access_parameters;
+        
+        // Extract structure from access_parameters
+        let structure = params.as_structure().ok_or_else(|| {
+            DlmsError::InvalidData("Access parameters must be a Structure".to_string())
+        })?;
+        
+        if structure.len() != 2 {
+            return Err(DlmsError::InvalidData(format!(
+                "Access parameters structure must have 2 elements, got {}",
+                structure.len()
+            )));
+        }
+        
+        match selector_type {
+            0 => {
+                // Entry Index: [Unsigned32, Unsigned32]
+                let start_index = structure[0].as_unsigned32()?;
+                let count = structure[1].as_unsigned32()?;
+                Ok(AccessSelector::EntryIndex { start_index, count })
+            }
+            1 => {
+                // Date Range: [OctetString, OctetString] (each is CosemDateTime)
+                let from_bytes = structure[0].as_octet_string()?;
+                let to_bytes = structure[1].as_octet_string()?;
+                
+                let from_date = CosemDateTime::decode(from_bytes)?;
+                let to_date = CosemDateTime::decode(to_bytes)?;
+                
+                Ok(AccessSelector::DateRange { from_date, to_date })
+            }
+            2 => {
+                // Value Range: [DataObject, DataObject]
+                Ok(AccessSelector::ValueRange {
+                    from_value: structure[0].clone(),
+                    to_value: structure[1].clone(),
+                })
+            }
+            _ => Err(DlmsError::InvalidData(format!(
+                "Unknown access selector type: {}",
+                selector_type
+            ))),
+        }
+    }
+
     /// Encode access selector to A-XDR format
     ///
     /// Encoding format:
     /// - None: Not encoded (omitted from PDU)
     /// - EntryIndex: Structure containing [Unsigned32, Unsigned32]
-    /// - DateRange: Structure containing [OctetString, OctetString]
+    /// - DateRange: Structure containing [OctetString, OctetString] (CosemDateTime encoded)
+    /// - ValueRange: Structure containing [DataObject, DataObject]
     ///
     /// # Why This Encoding?
     /// A-XDR structures are encoded as arrays of elements. This allows
     /// the decoder to determine the selector type by the structure content.
     pub fn encode(&self) -> DlmsResult<Option<Vec<u8>>> {
-        use dlms_core::datatypes::DataObject;
-        
         match self {
             AccessSelector::None => Ok(None),
             AccessSelector::EntryIndex { start_index, count } => {
@@ -279,10 +444,20 @@ impl AccessSelector {
                 Ok(Some(encoder.into_bytes()))
             }
             AccessSelector::DateRange { from_date, to_date } => {
-                // Encode as Structure with 2 OctetString elements
+                // Encode as Structure with 2 OctetString elements (CosemDateTime encoded)
                 let structure = vec![
-                    DataObject::new_octet_string(from_date.clone()),
-                    DataObject::new_octet_string(to_date.clone()),
+                    DataObject::new_octet_string(from_date.encode()),
+                    DataObject::new_octet_string(to_date.encode()),
+                ];
+                let mut encoder = AxdrEncoder::new();
+                encoder.encode_structure(&structure)?;
+                Ok(Some(encoder.into_bytes()))
+            }
+            AccessSelector::ValueRange { from_value, to_value } => {
+                // Encode as Structure with 2 DataObject elements
+                let structure = vec![
+                    from_value.clone(),
+                    to_value.clone(),
                 ];
                 let mut encoder = AxdrEncoder::new();
                 encoder.encode_structure(&structure)?;
@@ -292,6 +467,11 @@ impl AccessSelector {
     }
 
     /// Decode access selector from A-XDR format
+    ///
+    /// # Note
+    /// This method attempts to auto-detect the selector type by examining
+    /// the structure content. For explicit type detection, use
+    /// `from_selective_access_descriptor()` which includes the selector type.
     pub fn decode(data: &[u8]) -> DlmsResult<Self> {
         let mut decoder = AxdrDecoder::new(data);
         
@@ -312,20 +492,28 @@ impl AccessSelector {
             return Ok(AccessSelector::EntryIndex { start_index, count });
         }
         
-        // Try DateRange (two OctetString)
-        if let (Ok(from_date), Ok(to_date)) = (
+        // Try DateRange (two OctetString, each is CosemDateTime)
+        if let (Ok(from_bytes), Ok(to_bytes)) = (
             structure[0].as_octet_string(),
             structure[1].as_octet_string(),
         ) {
-            return Ok(AccessSelector::DateRange {
-                from_date: from_date.clone(),
-                to_date: to_date.clone(),
-            });
+            // Check if they are valid CosemDateTime (12 bytes each)
+            if from_bytes.len() == CosemDateTime::LENGTH && to_bytes.len() == CosemDateTime::LENGTH {
+                if let (Ok(from_date), Ok(to_date)) = (
+                    CosemDateTime::decode(from_bytes),
+                    CosemDateTime::decode(to_bytes),
+                ) {
+                    return Ok(AccessSelector::DateRange { from_date, to_date });
+                }
+            }
         }
         
-        Err(DlmsError::InvalidData(
-            "Invalid access selector structure".to_string(),
-        ))
+        // Try ValueRange (any two DataObjects)
+        // This is a fallback - if it's not EntryIndex or DateRange, assume ValueRange
+        Ok(AccessSelector::ValueRange {
+            from_value: structure[0].clone(),
+            to_value: structure[1].clone(),
+        })
     }
 }
 
@@ -374,10 +562,7 @@ mod tests {
 
     #[test]
     fn test_access_selector_entry_index() {
-        let selector = AccessSelector::EntryIndex {
-            start_index: 10,
-            count: 5,
-        };
+        let selector = AccessSelector::entry_index(10, 5);
         
         let encoded = selector.encode().unwrap();
         assert!(encoded.is_some());
@@ -387,6 +572,66 @@ mod tests {
             AccessSelector::EntryIndex { start_index, count } => {
                 assert_eq!(start_index, 10);
                 assert_eq!(count, 5);
+            }
+            _ => panic!("Expected EntryIndex"),
+        }
+    }
+
+    #[test]
+    fn test_access_selector_date_range() {
+        use dlms_core::datatypes::ClockStatus;
+        
+        let from_date = CosemDateTime::new(2024, 1, 1, 0, 0, 0, 0, &[]).unwrap();
+        let to_date = CosemDateTime::new(2024, 12, 31, 23, 59, 59, 0, &[]).unwrap();
+        let selector = AccessSelector::date_range(from_date.clone(), to_date.clone());
+        
+        let encoded = selector.encode().unwrap();
+        assert!(encoded.is_some());
+        
+        let decoded = AccessSelector::decode(encoded.as_ref().unwrap()).unwrap();
+        match decoded {
+            AccessSelector::DateRange { from_date: fd, to_date: td } => {
+                assert_eq!(fd.encode(), from_date.encode());
+                assert_eq!(td.encode(), to_date.encode());
+            }
+            _ => panic!("Expected DateRange"),
+        }
+    }
+
+    #[test]
+    fn test_access_selector_value_range() {
+        let from_value = DataObject::new_integer32(-100);
+        let to_value = DataObject::new_integer32(100);
+        let selector = AccessSelector::value_range(from_value.clone(), to_value.clone());
+        
+        let encoded = selector.encode().unwrap();
+        assert!(encoded.is_some());
+        
+        let decoded = AccessSelector::decode(encoded.as_ref().unwrap()).unwrap();
+        match decoded {
+            AccessSelector::ValueRange { from_value: fv, to_value: tv } => {
+                assert_eq!(fv.as_integer32().unwrap(), -100);
+                assert_eq!(tv.as_integer32().unwrap(), 100);
+            }
+            _ => panic!("Expected ValueRange"),
+        }
+    }
+
+    #[test]
+    fn test_access_selector_to_selective_access_descriptor() {
+        use crate::pdu::SelectiveAccessDescriptor;
+        
+        let selector = AccessSelector::entry_index(5, 10);
+        let descriptor = selector.to_selective_access_descriptor().unwrap().unwrap();
+        
+        assert_eq!(descriptor.access_selector, 0);
+        
+        // Convert back
+        let converted = AccessSelector::from_selective_access_descriptor(&descriptor).unwrap();
+        match converted {
+            AccessSelector::EntryIndex { start_index, count } => {
+                assert_eq!(start_index, 5);
+                assert_eq!(count, 10);
             }
             _ => panic!("Expected EntryIndex"),
         }

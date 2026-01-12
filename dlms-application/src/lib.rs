@@ -35,8 +35,8 @@
 //! - [x] 短名称（SN）寻址（ShortNameReference）
 //! - [x] 类 ID 和属性/方法 ID 处理
 //! - [x] OBIS 代码到对象引用转换
-//! - [x] 访问选择器处理（AccessSelector，基础实现）
-//! - [ ] 完整的访问选择器支持（日期范围等复杂选择器）
+//! - [x] 访问选择器处理（AccessSelector，完整实现）
+//! - [x] 完整的访问选择器支持（EntryIndex、DateRange、ValueRange）
 
 pub mod pdu;
 pub mod service {
@@ -62,6 +62,9 @@ pub use pdu::{
     InvokeIdAndPriority, CosemAttributeDescriptor, CosemMethodDescriptor,
     SelectiveAccessDescriptor, GetDataResult,
 };
+
+// Re-export addressing types
+pub use addressing::{LogicalNameReference, ShortNameReference, AccessSelector};
 
 // Re-export error code constants for convenience
 pub use pdu::data_access_result;

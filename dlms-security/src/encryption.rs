@@ -27,7 +27,14 @@ impl AesGcmEncryption {
         Ok(Self { cipher })
     }
 
-    /// Encrypt data with AES-GCM
+    /// Encrypt data with AES-GCM using a random nonce
+    ///
+    /// # Arguments
+    /// * `plaintext` - Data to encrypt
+    /// * `aad` - Additional Authenticated Data
+    ///
+    /// # Returns
+    /// Tuple of (ciphertext, nonce)
     pub fn encrypt(&self, plaintext: &[u8], aad: &[u8]) -> DlmsResult<(Vec<u8>, Vec<u8>)> {
         // Generate a random nonce (12 bytes for AES-GCM)
         let nonce = Aes128Gcm::generate_nonce(&mut OsRng);
@@ -45,6 +52,43 @@ impl AesGcmEncryption {
             .map_err(|e| DlmsError::Security(format!("Encryption failed: {}", e)))?;
 
         Ok((ciphertext, nonce.to_vec()))
+    }
+
+    /// Encrypt data with AES-GCM using a specified nonce
+    ///
+    /// # Arguments
+    /// * `plaintext` - Data to encrypt
+    /// * `nonce` - Nonce to use (must be 12 bytes for AES-128-GCM)
+    /// * `aad` - Additional Authenticated Data
+    ///
+    /// # Returns
+    /// Ciphertext (includes authentication tag)
+    ///
+    /// # Errors
+    /// Returns error if nonce length is not 12 bytes
+    pub fn encrypt_with_nonce(&self, plaintext: &[u8], nonce: &[u8], aad: &[u8]) -> DlmsResult<Vec<u8>> {
+        if nonce.len() != 12 {
+            return Err(DlmsError::Security(format!(
+                "Invalid nonce length: expected 12 bytes, got {}",
+                nonce.len()
+            )));
+        }
+
+        let nonce = Nonce::from_slice(nonce);
+
+        // Create payload with plaintext and AAD
+        let payload = Payload {
+            msg: plaintext,
+            aad,
+        };
+
+        // Encrypt
+        let ciphertext = self
+            .cipher
+            .encrypt(nonce, payload)
+            .map_err(|e| DlmsError::Security(format!("Encryption failed: {}", e)))?;
+
+        Ok(ciphertext)
     }
 
     /// Decrypt data with AES-GCM

@@ -20,48 +20,49 @@
 
 #### 访问选择器
 
-- [ ] **完整的访问选择器支持**
-  - [ ] 日期范围选择器
-  - [ ] 入口选择器
-  - [ ] 值范围选择器
-  - [ ] 其他复杂选择器类型
+- [x] **完整的访问选择器支持**
+  - [x] 日期范围选择器（使用CosemDateTime）
+  - [x] 入口选择器（EntryIndex）
+  - [x] 值范围选择器（ValueRange）
+  - [x] 与SelectiveAccessDescriptor的转换
+  - [x] 辅助方法（entry_index, date_range, value_range）
 
 ### 2. 会话层 (dlms-session)
 
 #### HDLC 高级功能
 
-- [ ] **服务器端SNRM/UA握手实现**
+- [x] **服务器端SNRM/UA握手实现**
 
-  - [ ] 等待SNRM帧
-  - [ ] 解析SNRM参数
-  - [ ] 生成UA响应
-  - [ ] 发送UA帧
+  - [x] 等待SNRM帧
+  - [x] 解析SNRM参数
+  - [x] 生成UA响应
+  - [x] 发送UA帧
 
-  - 位置: `dlms-server/src/listener.rs`
-- [ ] **请求解析和路由**
+  - 位置: `dlms-server/src/listener.rs` (已实现`HdlcConnection::accept()`)
+- [x] **请求解析和路由**
 
-  - [ ] PDU类型识别
-  - [ ] 路由到相应的处理方法（GET/SET/ACTION）
-  - [ ] 生成和发送响应
+  - [x] PDU类型识别
+  - [x] 路由到相应的处理方法（GET/SET/ACTION）
+  - [x] 生成和发送响应
 
-  - 位置: `dlms-server/src/listener.rs`
+  - 位置: `dlms-server/src/listener.rs` (已实现`parse_and_route_request_hdlc`和`parse_and_route_request_wrapper`)
 
 ### 3. 安全层 (dlms-security)
 
 #### xDLMS 加密帧
 
-- [ ] **加密帧构建和解析**
+- [x] **加密帧构建和解析**
 
-  - [ ] Security Control字节处理
-  - [ ] System Title嵌入
-  - [ ] Frame Counter嵌入
-  - [ ] 加密数据封装
-  - [ ] 解密帧解析
-- [ ] **帧计数器验证**
+  - [x] Security Control字节处理
+  - [x] System Title嵌入
+  - [x] Frame Counter嵌入
+  - [x] 加密数据封装
+  - [x] 解密帧解析
+- [x] **帧计数器验证**
 
-  - [ ] 接收帧的计数器验证
-  - [ ] 重放攻击检测
-  - [ ] 计数器同步机制
+  - [x] 接收帧的计数器验证（在`EncryptedFrameParser::parse_encrypted_frame`中实现）
+  - [x] 重放攻击检测（检查接收计数器是否大于当前计数器）
+  - [x] 计数器同步机制（自动更新接收计数器）
 - [ ] **KDF算法完善**
 
   - [ ] 实现完整的DLMS标准KDF算法

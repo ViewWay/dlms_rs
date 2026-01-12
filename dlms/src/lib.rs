@@ -26,7 +26,7 @@
 //! - HDLC 会话层（地址、帧、FCS、HCS、连接、窗口管理、帧重传、SNRM/UA握手、DISC/DM/UA释放、分段重组、LLC Header、统计信息、状态机）
 //! - Wrapper 会话层
 //! - 安全层（加密、认证、密钥管理、xDLMS基础功能）
-//! - xDLMS（System Title、Frame Counter、KDF、xDLMS Context）
+//! - xDLMS（System Title、Frame Counter、KDF、xDLMS Context、加密帧构建和解析）
 //!
 //! ## ✅ 已完成（继续完善中）
 //! - 应用层（PDU、服务）
@@ -51,15 +51,17 @@
 //!   - ✅ 服务器监听器（TCP连接监听、客户端接受、并发处理）
 //!   - ✅ GET/SET/ACTION请求处理（基础实现）
 //!   - ✅ Initiate Request处理
+//!   - ✅ 服务器端SNRM/UA握手实现
+//!   - ✅ 请求解析和路由（PDU类型识别、路由到处理方法、响应生成）
 //!
 //! ## 📋 待实现（详细列表见 TODO.md）
 //! 
 //! ### 高优先级
-//! - [ ] 服务器端SNRM/UA握手实现
-//! - [ ] 请求解析和路由
-//! - [ ] 加密帧构建和解析
-//! - [ ] 帧计数器验证
-//! - [ ] 完整的访问选择器支持
+//! - [x] 服务器端SNRM/UA握手实现
+//! - [x] 请求解析和路由
+//! - [x] 加密帧构建和解析
+//! - [x] 帧计数器验证（重放攻击检测和计数器同步）
+//! - [x] 完整的访问选择器支持（EntryIndex、DateRange、ValueRange）
 //! 
 //! ### 中优先级
 //! - [ ] ISO-ACSE高级功能（ApplicationContextNameList、完整CHOICE支持等）

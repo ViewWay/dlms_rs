@@ -10,7 +10,7 @@
 //! - [x] 密钥派生函数（KDF）- 基础实现
 //! - [x] 系统标题（System Title）管理
 //! - [x] 帧计数器（Frame Counter）管理
-//! - [ ] 加密帧构建和解析（需要集成System Title和Frame Counter）
+//! - [x] 加密帧构建和解析（已集成System Title和Frame Counter）
 //!
 //! ## 认证功能
 //! - [x] GMAC 认证
@@ -45,6 +45,7 @@ pub mod authentication;
 pub mod utils;
 pub mod constants;
 pub mod xdlms;
+pub mod xdlms_frame;
 
 pub use error::{DlmsError, DlmsResult};
 pub use suite::{
@@ -55,3 +56,4 @@ pub use authentication::{GmacAuth, LowAuth, Hls5GmacAuth};
 pub use utils::{KeyId, generate_aes128_key, wrap_aes_rfc3394_key, unwrap_aes_rfc3394_key};
 pub use constants::*;
 pub use xdlms::{SystemTitle, FrameCounter, KeyDerivationFunction, XdlmsContext};
+pub use xdlms_frame::{EncryptedFrameBuilder, EncryptedFrameParser};
