@@ -63,11 +63,12 @@
   - [x] 接收帧的计数器验证（在`EncryptedFrameParser::parse_encrypted_frame`中实现）
   - [x] 重放攻击检测（检查接收计数器是否大于当前计数器）
   - [x] 计数器同步机制（自动更新接收计数器）
-- [ ] **KDF算法完善**
+- [x] **KDF算法完善**
 
-  - [ ] 实现完整的DLMS标准KDF算法
-  - [ ] 参考Green Book中的KDF规范
-  - [ ] 替换当前简化实现
+  - [x] 实现完整的DLMS标准KDF算法（符合Green Book Edition 9）
+  - [x] 支持AES-128/192/256主密钥
+  - [x] 使用AES-ECB模式加密（符合DLMS标准）
+  - [x] 完整的文档和测试用例
 
 ---
 

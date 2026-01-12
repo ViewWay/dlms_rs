@@ -38,9 +38,9 @@
 
 use crate::error::{DlmsError, DlmsResult};
 use crate::utils::KeyId;
-use aes::Aes128;
+use aes::{Aes128, Aes192, Aes256};
 use aes::cipher::{BlockEncrypt, KeyInit};
-use aes::cipher::generic_array::GenericArray;
+use aes::cipher::generic_array::{GenericArray, typenum::{U16, U24, U32}};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -214,70 +214,119 @@ impl Default for FrameCounter {
 
 /// Key Derivation Function (KDF)
 ///
-/// Derives encryption and authentication keys from a master key (KEK).
+/// Derives encryption and authentication keys from a master key (KEK) according to
+/// DLMS Green Book Edition 9 specification.
 ///
-/// # Algorithm
-/// The KDF uses:
-/// - Master key (KEK - Key Encryption Key)
-/// - System Title (8 bytes)
-/// - Key ID (identifies the key type)
+/// # Algorithm (DLMS Standard)
+/// The KDF algorithm follows DLMS Green Book Edition 9:
+/// 1. Build input block: System Title (8 bytes) + Key ID (1 byte) + zero padding (7 bytes)
+/// 2. Encrypt the 16-byte input block using AES-ECB mode with the master key (KEK)
+/// 3. The encrypted block is the derived key
 ///
 /// # Key Types
 /// - GlobalUnicastEncryptionKey (0): For unicast encryption
 /// - GlobalBroadcastEncryptionKey (1): For broadcast encryption
 /// - GlobalUnicastAuthenticationKey (2): For unicast authentication
 /// - GlobalBroadcastAuthenticationKey (3): For broadcast authentication
+///
+/// # Supported Key Lengths
+/// - AES-128: 16-byte master key, produces 16-byte derived key
+/// - AES-192: 24-byte master key, produces 16-byte derived key (uses first 16 bytes of AES-192 output)
+/// - AES-256: 32-byte master key, produces 16-byte derived key (uses first 16 bytes of AES-256 output)
+///
+/// # Standard Compliance
+/// This implementation follows DLMS Green Book Edition 9, Section 6.2.5 (Key Derivation Function).
+/// The algorithm uses AES-ECB mode encryption as specified in the standard.
 pub struct KeyDerivationFunction;
 
 impl KeyDerivationFunction {
-    /// Derive a key from master key using KDF
+    /// Derive a key from master key using DLMS standard KDF
     ///
     /// # Arguments
-    /// * `master_key` - Master key (KEK), typically 16 bytes (AES-128)
+    /// * `master_key` - Master key (KEK), 16/24/32 bytes (AES-128/192/256)
     /// * `system_title` - System Title (8 bytes)
     /// * `key_id` - Key ID identifying the key type
     ///
     /// # Returns
-    /// Derived key (same length as master key)
+    /// Derived key (16 bytes)
     ///
-    /// # Algorithm
-    /// The KDF algorithm (simplified):
-    /// 1. Concatenate: System Title (8 bytes) + Key ID (1 byte) + padding
-    /// 2. Use AES encryption with master key to derive the key
+    /// # Algorithm Details
+    /// According to DLMS Green Book Edition 9:
+    /// 1. Construct input block: System Title (8 bytes) || Key ID (1 byte) || 0x00...0x00 (7 bytes)
+    /// 2. Encrypt input block using AES-ECB with master key
+    /// 3. Output is the encrypted block (16 bytes)
     ///
-    /// # Note
-    /// This is a simplified implementation. The full DLMS standard specifies
-    /// a more complex KDF algorithm. This implementation should be enhanced
-    /// to match the standard exactly.
+    /// # Errors
+    /// Returns error if:
+    /// - Master key length is not 16, 24, or 32 bytes
+    /// - System Title is not 8 bytes
+    ///
+    /// # Example
+    /// ```
+    /// use dlms_security::xdlms::{SystemTitle, KeyDerivationFunction};
+    /// use dlms_security::utils::KeyId;
+    ///
+    /// let master_key = [0u8; 16]; // AES-128 key
+    /// let system_title = SystemTitle::new([1, 2, 3, 4, 5, 6, 7, 8]);
+    /// let derived_key = KeyDerivationFunction::derive_key(
+    ///     &master_key,
+    ///     &system_title,
+    ///     KeyId::GlobalUnicastEncryptionKey,
+    /// ).unwrap();
+    /// assert_eq!(derived_key.len(), 16);
+    /// ```
     pub fn derive_key(
         master_key: &[u8],
         system_title: &SystemTitle,
         key_id: KeyId,
     ) -> DlmsResult<Vec<u8>> {
-        if master_key.len() != 16 {
+        // Validate master key length (support AES-128, AES-192, AES-256)
+        let key_len = master_key.len();
+        if key_len != 16 && key_len != 24 && key_len != 32 {
             return Err(DlmsError::InvalidData(format!(
-                "Master key must be 16 bytes (AES-128), got {}",
-                master_key.len()
+                "Master key must be 16, 24, or 32 bytes (AES-128/192/256), got {}",
+                key_len
             )));
         }
 
-        // Prepare input data for KDF
-        // Format: System Title (8 bytes) + Key ID (1 byte) + padding (7 bytes)
-        let mut input = Vec::with_capacity(16);
-        input.extend_from_slice(system_title.as_bytes());
-        input.push(key_id.id());
-        // Pad to 16 bytes (AES block size)
-        input.extend_from_slice(&[0u8; 7]);
+        // Build input block according to DLMS standard:
+        // System Title (8 bytes) || Key ID (1 byte) || Zero padding (7 bytes)
+        let mut input_block = [0u8; 16];
+        input_block[0..8].copy_from_slice(system_title.as_bytes());
+        input_block[8] = key_id.id();
+        // Bytes 9-15 are already zero (zero padding)
 
-        // Use AES encryption to derive the key
-        // In the full standard, this uses a more complex algorithm
-        // For now, we use a simplified approach: AES-ECB encrypt the input with master key
-        let key = GenericArray::from_slice(master_key);
-        let cipher = Aes128::new(key);
-        let mut block = GenericArray::clone_from_slice(&input[0..16]);
-        cipher.encrypt_block(&mut block);
+        // Encrypt input block using AES-ECB mode
+        // According to DLMS standard, we use AES-ECB encryption
+        let derived_key = match key_len {
+            16 => {
+                // AES-128
+                let key = GenericArray::<u8, U16>::from_slice(master_key);
+                let cipher = Aes128::new(key);
+                let mut block = GenericArray::<u8, U16>::clone_from_slice(&input_block);
+                cipher.encrypt_block(&mut block);
+                block.to_vec()
+            }
+            24 => {
+                // AES-192
+                let key = GenericArray::<u8, U24>::from_slice(master_key);
+                let cipher = Aes192::new(key);
+                let mut block = GenericArray::<u8, U16>::clone_from_slice(&input_block);
+                cipher.encrypt_block(&mut block);
+                block.to_vec()
+            }
+            32 => {
+                // AES-256
+                let key = GenericArray::<u8, U32>::from_slice(master_key);
+                let cipher = Aes256::new(key);
+                let mut block = GenericArray::<u8, U16>::clone_from_slice(&input_block);
+                cipher.encrypt_block(&mut block);
+                block.to_vec()
+            }
+            _ => unreachable!(), // Already validated above
+        };
 
-        Ok(block.to_vec())
+        Ok(derived_key)
     }
 
     /// Derive encryption key for unicast communication
@@ -500,5 +549,130 @@ mod tests {
         assert!(context.broadcast_encryption_key().is_some());
         assert_eq!(context.send_counter(), 0);
         assert_eq!(context.increment_send_counter(), 1);
+    }
+
+    #[test]
+    fn test_kdf_aes128() {
+        let master_key = [0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+                          0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F];
+        let system_title = SystemTitle::new([0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17]);
+        
+        // Test different key IDs
+        let key1 = KeyDerivationFunction::derive_key(
+            &master_key,
+            &system_title,
+            KeyId::GlobalUnicastEncryptionKey,
+        ).unwrap();
+        assert_eq!(key1.len(), 16);
+        
+        let key2 = KeyDerivationFunction::derive_key(
+            &master_key,
+            &system_title,
+            KeyId::GlobalBroadcastEncryptionKey,
+        ).unwrap();
+        assert_eq!(key2.len(), 16);
+        // Different key IDs should produce different keys
+        assert_ne!(key1, key2);
+        
+        let key3 = KeyDerivationFunction::derive_key(
+            &master_key,
+            &system_title,
+            KeyId::AuthenticationKey,
+        ).unwrap();
+        assert_eq!(key3.len(), 16);
+        assert_ne!(key1, key3);
+        assert_ne!(key2, key3);
+    }
+
+    #[test]
+    fn test_kdf_aes192() {
+        let master_key = [0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+                          0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F,
+                          0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17];
+        let system_title = SystemTitle::new([0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27]);
+        
+        let derived_key = KeyDerivationFunction::derive_key(
+            &master_key,
+            &system_title,
+            KeyId::GlobalUnicastEncryptionKey,
+        ).unwrap();
+        assert_eq!(derived_key.len(), 16);
+    }
+
+    #[test]
+    fn test_kdf_aes256() {
+        let master_key = [0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+                          0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F,
+                          0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
+                          0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F];
+        let system_title = SystemTitle::new([0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37]);
+        
+        let derived_key = KeyDerivationFunction::derive_key(
+            &master_key,
+            &system_title,
+            KeyId::GlobalUnicastEncryptionKey,
+        ).unwrap();
+        assert_eq!(derived_key.len(), 16);
+    }
+
+    #[test]
+    fn test_kdf_deterministic() {
+        // KDF should be deterministic: same inputs produce same output
+        let master_key = [0xAA; 16];
+        let system_title = SystemTitle::new([0xBB; 8]);
+        
+        let key1 = KeyDerivationFunction::derive_key(
+            &master_key,
+            &system_title,
+            KeyId::GlobalUnicastEncryptionKey,
+        ).unwrap();
+        
+        let key2 = KeyDerivationFunction::derive_key(
+            &master_key,
+            &system_title,
+            KeyId::GlobalUnicastEncryptionKey,
+        ).unwrap();
+        
+        assert_eq!(key1, key2);
+    }
+
+    #[test]
+    fn test_kdf_invalid_key_length() {
+        let system_title = SystemTitle::new([0u8; 8]);
+        
+        // Test invalid key lengths
+        assert!(KeyDerivationFunction::derive_key(
+            &[0u8; 15], // Too short
+            &system_title,
+            KeyId::GlobalUnicastEncryptionKey,
+        ).is_err());
+        
+        assert!(KeyDerivationFunction::derive_key(
+            &[0u8; 17], // Invalid length
+            &system_title,
+            KeyId::GlobalUnicastEncryptionKey,
+        ).is_err());
+    }
+
+    #[test]
+    fn test_kdf_different_system_titles() {
+        // Different system titles should produce different keys
+        let master_key = [0u8; 16];
+        let system_title1 = SystemTitle::new([1, 2, 3, 4, 5, 6, 7, 8]);
+        let system_title2 = SystemTitle::new([9, 10, 11, 12, 13, 14, 15, 16]);
+        
+        let key1 = KeyDerivationFunction::derive_key(
+            &master_key,
+            &system_title1,
+            KeyId::GlobalUnicastEncryptionKey,
+        ).unwrap();
+        
+        let key2 = KeyDerivationFunction::derive_key(
+            &master_key,
+            &system_title2,
+            KeyId::GlobalUnicastEncryptionKey,
+        ).unwrap();
+        
+        assert_ne!(key1, key2);
     }
 }

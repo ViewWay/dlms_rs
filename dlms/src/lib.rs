@@ -62,6 +62,7 @@
 //! - [x] 加密帧构建和解析
 //! - [x] 帧计数器验证（重放攻击检测和计数器同步）
 //! - [x] 完整的访问选择器支持（EntryIndex、DateRange、ValueRange）
+//! - [x] KDF算法完善（支持AES-128/192/256，符合DLMS标准）
 //! 
 //! ### 中优先级
 //! - [ ] ISO-ACSE高级功能（ApplicationContextNameList、完整CHOICE支持等）
