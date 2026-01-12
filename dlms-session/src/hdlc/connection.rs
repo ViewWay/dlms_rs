@@ -4,7 +4,7 @@ use crate::error::{DlmsError, DlmsResult};
 use crate::hdlc::address::{HdlcAddress, HdlcAddressPair};
 use crate::hdlc::decoder::HdlcMessageDecoder;
 use crate::hdlc::dispatcher::HdlcDispatcher;
-use crate::hdlc::frame::{FrameType, HdlcFrame, FLAG, LLC_REQUEST};
+use crate::hdlc::frame::{FrameType, HdlcFrame, FLAG, LLC_REQUEST, LLC_RESPONSE};
 use crate::hdlc::statistics::HdlcStatistics;
 use crate::hdlc::window::{SendWindow, ReceiveWindow};
 use crate::hdlc::state::HdlcConnectionState;
@@ -413,6 +413,15 @@ pub struct HdlcConnection<T: TransportLayer> {
     /// for protocol compliance, but can be disabled for compatibility with devices
     /// that don't expect LLC header.
     use_llc_header: bool,
+    /// Whether this connection is acting as a client (true) or server (false)
+    /// 
+    /// This determines which LLC header to use when sending Information frames:
+    /// - Client: Uses LLC_REQUEST [0xE6, 0xE6, 0x00] for requests
+    /// - Server: Uses LLC_RESPONSE [0xE6, 0xE7, 0x00] for responses
+    /// 
+    /// According to DLMS standard (IEC 62056-47), the second byte of the LLC header
+    /// is 0xE6 for requests (client -> server) and 0xE7 for responses (server -> client).
+    is_client: bool,
     /// Statistics for monitoring connection performance and debugging
     statistics: HdlcStatistics,
     /// Send window for sliding window protocol and retransmission
@@ -436,6 +445,10 @@ impl<T: TransportLayer> HdlcConnection<T> {
     /// # LLC Header
     /// By default, LLC header is enabled for protocol compliance. Set `use_llc_header(false)`
     /// after creation if you need to disable it for compatibility.
+    /// 
+    /// # Client vs Server
+    /// By default, the connection is created as a client. Use `new_server()` to create
+    /// a server-side connection, which will use LLC_RESPONSE header for responses.
     pub fn new(
         transport: T,
         local_address: HdlcAddress,
@@ -454,6 +467,7 @@ impl<T: TransportLayer> HdlcConnection<T> {
             closed: true, // Keep in sync with state
             reassembler: SegmentedFrameReassembler::new(),
             use_llc_header: true, // Enable LLC header by default for protocol compliance
+            is_client: true, // Default to client mode
             statistics: HdlcStatistics::new(),
             send_window: SendWindow::new(
                 1, // Default window size (will be updated from UA frame)
@@ -464,6 +478,26 @@ impl<T: TransportLayer> HdlcConnection<T> {
             retransmit_timeout: Duration::from_secs(3),
             max_retries: 3,
         }
+    }
+
+    /// Create a new HDLC connection in server mode
+    ///
+    /// # Arguments
+    /// * `transport` - Transport layer implementation
+    /// * `local_address` - Local HDLC address (server address)
+    /// * `remote_address` - Remote HDLC address (client address)
+    ///
+    /// # LLC Header
+    /// Server connections use LLC_RESPONSE [0xE6, 0xE7, 0x00] when sending responses,
+    /// according to DLMS standard (IEC 62056-47).
+    pub fn new_server(
+        transport: T,
+        local_address: HdlcAddress,
+        remote_address: HdlcAddress,
+    ) -> Self {
+        let mut conn = Self::new(transport, local_address, remote_address);
+        conn.is_client = false; // Server mode
+        conn
     }
 
     /// Set whether to use LLC header for Information frames
@@ -586,12 +620,122 @@ impl<T: TransportLayer> HdlcConnection<T> {
         }
 
         // Connection is now established
-        self.state = HdlcConnectionState::Connected;
+        // Use transition_to to ensure closed flag is properly synced
+        self.transition_to(HdlcConnectionState::Connected)?;
         
         // Reset windows for new connection
         self.send_window.reset();
         self.receive_window.reset();
         
+        Ok(())
+    }
+
+    /// Accept an HDLC connection (server-side)
+    ///
+    /// This method implements the server-side of the SNRM/UA handshake:
+    /// 1. Wait for SNRM (Set Normal Response Mode) frame from client
+    /// 2. Parse SNRM parameters (if any)
+    /// 3. Generate UA (Unnumbered Acknowledge) response with server parameters
+    /// 4. Send UA frame to client
+    ///
+    /// # Connection Establishment Process (per dlms-docs/dlms/cosem连接过程.txt)
+    ///
+    /// The server-side connection establishment follows this sequence:
+    /// ```
+    /// 客户端 -> SNRM -> 服务器
+    /// 客户端 <- UA <- 服务器
+    /// ```
+    ///
+    /// # Process
+    /// 1. Open the transport layer (if not already open)
+    /// 2. Wait for SNRM frame from client (with timeout)
+    /// 3. Parse SNRM frame (typically has no information field)
+    /// 4. Generate UA frame with server parameters
+    /// 5. Send UA frame to client
+    /// 6. Update connection state to Connected
+    ///
+    /// # Why This Design?
+    /// - **SNRM Frame**: Client requests HDLC connection establishment
+    /// - **UA Frame**: Server acknowledges and provides negotiated parameters
+    /// - **Parameter Negotiation**: Server provides its capabilities (window size, frame length)
+    ///
+    /// # Error Handling
+    /// - Transport layer errors: Returns `DlmsError::Connection`
+    /// - SNRM receive timeout: Returns `DlmsError::Connection` with timeout error
+    /// - SNRM frame format error: Returns `DlmsError::FrameInvalid`
+    /// - UA send failure: Returns `DlmsError::Connection`
+    ///
+    /// # Optimization Considerations
+    /// - Default timeout is 5 seconds, which should be sufficient for most networks
+    /// - Server parameters are taken from current `HdlcParameters`
+    /// - Connection state is only set to open after successful UA transmission
+    ///
+    /// # Future Enhancements
+    /// - Configurable timeout duration
+    /// - SNRM parameter parsing (if client sends parameters)
+    /// - Parameter negotiation (accept/reject based on server capabilities)
+    pub async fn accept(&mut self) -> DlmsResult<()> {
+        // Step 1: Ensure transport layer is open
+        // Note: For server, transport is typically already open (listener accepted connection)
+        if self.transport.is_closed() {
+            self.transport.open().await?;
+        }
+
+        // Step 2: Wait for SNRM (Set Normal Response Mode) frame from client
+        // Default timeout: 5 seconds (should be sufficient for most networks)
+        let timeout = Duration::from_secs(5);
+        let frames = self.receive_frames(Some(timeout)).await?;
+
+        // Step 3: Find and parse SNRM frame
+        let snrm_frame = frames
+            .iter()
+            .find(|f| f.frame_type() == FrameType::SetNormalResponseMode)
+            .ok_or_else(|| {
+                DlmsError::Connection(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    "SNRM frame not received within timeout period",
+                ))
+            })?;
+
+        // Extract client address from SNRM frame (for updating remote_address)
+        // SNRM frame is sent from client to server, so source address is client address
+        let client_address = snrm_frame.address_pair().source();
+        self.remote_address = client_address;
+
+        // Step 4: Parse SNRM parameters (if any)
+        // According to HDLC standard, SNRM frame typically has no information field
+        // But we check for it anyway in case of extended formats
+        let _snrm_info_field = snrm_frame.information_field();
+        // TODO: Parse SNRM parameters if information field is present
+        // For now, we use default server parameters
+
+        // Step 5: Generate UA frame with server parameters
+        // UA frame information field contains negotiated parameters
+        let ua_parameters = UaFrameParameters {
+            window_size_rx: self.parameters.window_size_rx,
+            max_information_field_length_rx: self.parameters.max_information_field_length_rx,
+            window_size_tx: self.parameters.window_size_tx,
+            max_information_field_length_tx: self.parameters.max_information_field_length_tx,
+        };
+        let ua_info_field = ua_parameters.encode();
+
+        // Step 6: Send UA frame to client
+        let address_pair = HdlcAddressPair::new(self.local_address, self.remote_address);
+        let ua_frame = HdlcFrame::new(
+            address_pair,
+            FrameType::UnnumberedAcknowledge,
+            Some(ua_info_field),
+        );
+        self.send_frame(ua_frame).await?;
+
+        // Step 7: Update connection state to Connected
+        // Use transition_to to ensure closed flag is properly synced
+        self.transition_to(HdlcConnectionState::Connected)?;
+
+        // Reset windows for new connection
+        self.send_window.reset();
+        self.receive_window.reset();
+
         Ok(())
     }
 
@@ -688,9 +832,17 @@ impl<T: TransportLayer> HdlcConnection<T> {
         }
 
         // Prepend LLC header if enabled
+        // According to DLMS standard (IEC 62056-47):
+        // - Clients use LLC_REQUEST [0xE6, 0xE6, 0x00] for requests
+        // - Servers use LLC_RESPONSE [0xE6, 0xE7, 0x00] for responses
         let mut data_with_llc = if self.use_llc_header {
-            let mut data = Vec::with_capacity(LLC_REQUEST.len() + information_field.len());
-            data.extend_from_slice(&LLC_REQUEST);
+            let llc_header = if self.is_client {
+                &LLC_REQUEST
+            } else {
+                &LLC_RESPONSE
+            };
+            let mut data = Vec::with_capacity(llc_header.len() + information_field.len());
+            data.extend_from_slice(llc_header);
             data.extend_from_slice(&information_field);
             data
         } else {
@@ -903,9 +1055,17 @@ impl<T: TransportLayer> HdlcConnection<T> {
                 }
                 
                 // Remove LLC header if present and enabled
+                // According to DLMS standard:
+                // - Requests use LLC_REQUEST [0xE6, 0xE6, 0x00] (client -> server)
+                // - Responses use LLC_RESPONSE [0xE6, 0xE7, 0x00] (server -> client)
+                // We need to check for both when receiving frames
                 if self.use_llc_header && info_data.len() >= LLC_REQUEST.len() {
                     if info_data.starts_with(&LLC_REQUEST) {
+                        // Request header (from client)
                         info_data.drain(0..LLC_REQUEST.len());
+                    } else if info_data.starts_with(&LLC_RESPONSE) {
+                        // Response header (from server)
+                        info_data.drain(0..LLC_RESPONSE.len());
                     } else {
                         // LLC header expected but not found - this might be an error
                         // However, we'll continue processing to maintain compatibility

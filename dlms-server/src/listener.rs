@@ -3,7 +3,14 @@
 //! This module provides server-side connection listening and acceptance functionality.
 
 use crate::server::{DlmsServer, AssociationContext};
-use dlms_application::pdu::{InitiateRequest, InitiateResponse};
+use dlms_application::pdu::{
+    InitiateRequest, InitiateResponse,
+    GetRequest, GetResponse,
+    SetRequest, SetResponse,
+    ActionRequest, ActionResponse,
+    AccessRequest, AccessResponse,
+    ExceptionResponse,
+};
 use dlms_core::{DlmsError, DlmsResult};
 use dlms_session::hdlc::{HdlcConnection, HdlcAddress};
 use dlms_session::wrapper::WrapperSession;
@@ -194,16 +201,19 @@ impl ClientHandler {
         transport: TcpTransport,
         local_address: HdlcAddress,
     ) -> DlmsResult<()> {
-        // Create HDLC connection
+        // Create HDLC connection in server mode
         // Note: Remote address will be determined from SNRM/UA handshake
-        let remote_address = HdlcAddress::new(0x10, 0x00); // Default client address
-        let mut hdlc_conn = HdlcConnection::new(transport, local_address, remote_address);
+        // Server connections use LLC_RESPONSE header for responses
+        let remote_address = HdlcAddress::new(0x10, 0x00); // Default client address (will be updated from SNRM)
+        let mut hdlc_conn = HdlcConnection::new_server(transport, local_address, remote_address);
         
-        // Wait for SNRM frame and respond with UA
-        // This is handled by the HDLC connection's open() method on client side
-        // On server side, we need to wait for SNRM and send UA
-        // For now, we'll assume the connection is already established
-        // TODO: Implement server-side SNRM/UA handshake
+        // Wait for SNRM frame and respond with UA (server-side handshake)
+        // This implements the server-side of the SNRM/UA handshake:
+        // 1. Wait for SNRM frame from client
+        // 2. Generate UA response with server parameters
+        // 3. Send UA frame to client
+        // 4. Update connection state to Connected
+        hdlc_conn.accept().await?;
         
         // Process Initiate Request
         self.process_initiate(&mut hdlc_conn).await?;
@@ -217,11 +227,22 @@ impl ClientHandler {
                     log::error!("Error receiving data: {}", e);
                     break;
                 }
-            }
+            };
             
             // Parse and process request
-            // TODO: Implement request parsing and routing
-            log::debug!("Received {} bytes from client", data.len());
+            match self.parse_and_route_request_hdlc(&data, hdlc_conn).await {
+                Ok(_) => {
+                    // Request processed successfully
+                }
+                Err(e) => {
+                    log::error!("Error processing request: {}", e);
+                    // Send exception response if possible
+                    if let Err(send_err) = self.send_exception_response_hdlc(hdlc_conn, e).await {
+                        log::error!("Failed to send exception response: {}", send_err);
+                    }
+                    // Continue processing other requests
+                }
+            }
         }
         
         // Clean up association
@@ -256,8 +277,19 @@ impl ClientHandler {
             };
             
             // Parse and process request
-            // TODO: Implement request parsing and routing
-            log::debug!("Received {} bytes from client", data.len());
+            match self.parse_and_route_request_wrapper(&data, wrapper).await {
+                Ok(_) => {
+                    // Request processed successfully
+                }
+                Err(e) => {
+                    log::error!("Error processing request: {}", e);
+                    // Send exception response if possible
+                    if let Err(send_err) = self.send_exception_response_wrapper(wrapper, e).await {
+                        log::error!("Failed to send exception response: {}", send_err);
+                    }
+                    // Continue processing other requests
+                }
+            }
         }
         
         // Clean up association
@@ -308,6 +340,206 @@ impl ClientHandler {
         
         // Send response
         let response_data = response.encode()?;
+        wrapper.send(&response_data).await?;
+        
+        Ok(())
+    }
+    
+    /// Parse and route request for HDLC connection
+    ///
+    /// # Process
+    /// 1. Identify PDU type from first byte (tag)
+    /// 2. Decode the appropriate PDU
+    /// 3. Route to corresponding handler method
+    /// 4. Encode and send response
+    ///
+    /// # PDU Type Tags (DLMS standard)
+    /// - InitiateRequest: 1
+    /// - InitiateResponse: 2
+    /// - GetRequest: 192 (0xC0)
+    /// - GetResponse: 196 (0xC4)
+    /// - SetRequest: 193 (0xC1)
+    /// - SetResponse: 197 (0xC5)
+    /// - ActionRequest: 195 (0xC3)
+    /// - ActionResponse: 199 (0xC7)
+    /// - AccessRequest: 3
+    /// - AccessResponse: 4
+    async fn parse_and_route_request_hdlc(
+        &self,
+        data: &[u8],
+        hdlc_conn: &mut HdlcConnection<TcpTransport>,
+    ) -> DlmsResult<()> {
+        if data.is_empty() {
+            return Err(DlmsError::InvalidData("Empty request data".to_string()));
+        }
+        
+        // Identify PDU type from first byte
+        let pdu_tag = data[0];
+        
+        match pdu_tag {
+            // GetRequest: 192 (0xC0)
+            192 => {
+                let request = GetRequest::decode(data)?;
+                let server = self.server.read().await;
+                let response = server.handle_get_request(&request, self.client_sap).await?;
+                let response_data = response.encode()?;
+                hdlc_conn.send_information(response_data, false).await?;
+                Ok(())
+            }
+            // SetRequest: 193 (0xC1)
+            193 => {
+                let request = SetRequest::decode(data)?;
+                let server = self.server.read().await;
+                let response = server.handle_set_request(&request, self.client_sap).await?;
+                let response_data = response.encode()?;
+                hdlc_conn.send_information(response_data, false).await?;
+                Ok(())
+            }
+            // ActionRequest: 195 (0xC3)
+            195 => {
+                let request = ActionRequest::decode(data)?;
+                let server = self.server.read().await;
+                let response = server.handle_action_request(&request, self.client_sap).await?;
+                let response_data = response.encode()?;
+                hdlc_conn.send_information(response_data, false).await?;
+                Ok(())
+            }
+            // AccessRequest: 3
+            3 => {
+                let request = AccessRequest::decode(data)?;
+                let server = self.server.read().await;
+                let response = server.handle_access_request(&request, self.client_sap).await?;
+                let response_data = response.encode()?;
+                hdlc_conn.send_information(response_data, false).await?;
+                Ok(())
+            }
+            // InitiateRequest: 1 (should be handled separately, but handle here for robustness)
+            1 => {
+                // This should have been handled in process_initiate, but handle here as fallback
+                let request = InitiateRequest::decode(data)?;
+                let server = self.server.read().await;
+                let response = server.handle_initiate_request(&request, self.client_sap).await?;
+                let response_data = response.encode()?;
+                hdlc_conn.send_information(response_data, false).await?;
+                Ok(())
+            }
+            _ => {
+                Err(DlmsError::InvalidData(format!(
+                    "Unknown PDU type tag: 0x{:02X}",
+                    pdu_tag
+                )))
+            }
+        }
+    }
+    
+    /// Parse and route request for Wrapper connection
+    ///
+    /// Similar to parse_and_route_request_hdlc but uses WrapperSession for sending responses.
+    async fn parse_and_route_request_wrapper(
+        &self,
+        data: &[u8],
+        wrapper: &mut WrapperSession<TcpTransport>,
+    ) -> DlmsResult<()> {
+        if data.is_empty() {
+            return Err(DlmsError::InvalidData("Empty request data".to_string()));
+        }
+        
+        // Identify PDU type from first byte
+        let pdu_tag = data[0];
+        
+        match pdu_tag {
+            // GetRequest: 192 (0xC0)
+            192 => {
+                let request = GetRequest::decode(data)?;
+                let server = self.server.read().await;
+                let response = server.handle_get_request(&request, self.client_sap).await?;
+                let response_data = response.encode()?;
+                wrapper.send(&response_data).await?;
+                Ok(())
+            }
+            // SetRequest: 193 (0xC1)
+            193 => {
+                let request = SetRequest::decode(data)?;
+                let server = self.server.read().await;
+                let response = server.handle_set_request(&request, self.client_sap).await?;
+                let response_data = response.encode()?;
+                wrapper.send(&response_data).await?;
+                Ok(())
+            }
+            // ActionRequest: 195 (0xC3)
+            195 => {
+                let request = ActionRequest::decode(data)?;
+                let server = self.server.read().await;
+                let response = server.handle_action_request(&request, self.client_sap).await?;
+                let response_data = response.encode()?;
+                wrapper.send(&response_data).await?;
+                Ok(())
+            }
+            // AccessRequest: 3
+            3 => {
+                let request = AccessRequest::decode(data)?;
+                let server = self.server.read().await;
+                let response = server.handle_access_request(&request, self.client_sap).await?;
+                let response_data = response.encode()?;
+                wrapper.send(&response_data).await?;
+                Ok(())
+            }
+            // InitiateRequest: 1 (should be handled separately, but handle here for robustness)
+            1 => {
+                // This should have been handled in process_initiate_wrapper, but handle here as fallback
+                let request = InitiateRequest::decode(data)?;
+                let server = self.server.read().await;
+                let response = server.handle_initiate_request(&request, self.client_sap).await?;
+                let response_data = response.encode()?;
+                wrapper.send(&response_data).await?;
+                Ok(())
+            }
+            _ => {
+                Err(DlmsError::InvalidData(format!(
+                    "Unknown PDU type tag: 0x{:02X}",
+                    pdu_tag
+                )))
+            }
+        }
+    }
+    
+    /// Send exception response for HDLC connection
+    ///
+    /// Creates an ExceptionResponse PDU from an error and sends it to the client.
+    async fn send_exception_response_hdlc(
+        &self,
+        hdlc_conn: &mut HdlcConnection<TcpTransport>,
+        error: DlmsError,
+    ) -> DlmsResult<()> {
+        // Convert error to exception response
+        // For now, use a generic state error
+        let exception_response = ExceptionResponse::new(
+            dlms_application::pdu::ExceptionState::StateError,
+            dlms_application::pdu::ExceptionServiceError::Other,
+        )?;
+        
+        let response_data = exception_response.encode()?;
+        hdlc_conn.send_information(response_data, false).await?;
+        
+        Ok(())
+    }
+    
+    /// Send exception response for Wrapper connection
+    ///
+    /// Similar to send_exception_response_hdlc but uses WrapperSession.
+    async fn send_exception_response_wrapper(
+        &self,
+        wrapper: &mut WrapperSession<TcpTransport>,
+        error: DlmsError,
+    ) -> DlmsResult<()> {
+        // Convert error to exception response
+        // For now, use a generic state error
+        let exception_response = ExceptionResponse::new(
+            dlms_application::pdu::ExceptionState::StateError,
+            dlms_application::pdu::ExceptionServiceError::Other,
+        )?;
+        
+        let response_data = exception_response.encode()?;
         wrapper.send(&response_data).await?;
         
         Ok(())

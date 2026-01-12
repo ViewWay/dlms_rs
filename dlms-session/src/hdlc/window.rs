@@ -166,40 +166,96 @@ impl SendWindow {
     ///
     /// # Wrap-Around Handling
     /// HDLC uses 3-bit sequence numbers (0-7), so we need to handle wrap-around.
-    /// The algorithm compares sequences considering the circular nature:
-    /// - If ack_sequence > oldest_sequence: acknowledge frames with seq < ack_sequence
-    /// - If ack_sequence < oldest_sequence: wrap-around case, acknowledge frames with
-    ///   seq < ack_sequence OR seq >= oldest_sequence
+    /// The algorithm acknowledges all frames with seq < ack_sequence, regardless of
+    /// whether we're in wrap-around or not.
+    ///
+    /// # Example
+    /// If we sent frames 5, 6, 7, 0, 1, 2 and receive N(R) = 3:
+    /// - Queue: [5, 6, 7, 0, 1, 2] (ordered by send time)
+    /// - ack_sequence = 3
+    /// - Frames with seq < 3 (i.e., 0, 1, 2) are acknowledged and removed
+    /// - Frames with seq >= 3 (i.e., 5, 6, 7) remain in queue
+    ///
+    /// # Why This Works
+    /// The key insight is that we always acknowledge frames with seq < ack_sequence,
+    /// regardless of wrap-around. The queue is processed from front to back, and frames
+    /// are removed as they are acknowledged. In wrap-around cases, frames from the
+    /// previous cycle (seq < ack_sequence) will be found and acknowledged, while frames
+    /// from the current cycle (seq >= ack_sequence) will remain.
     pub fn acknowledge(&mut self, ack_sequence: u8) -> usize {
         let mut acked_count = 0;
 
-        // Remove all frames with sequence < ack_sequence
-        // Handle wrap-around for 3-bit sequence numbers (0-7)
-        while let Some(front) = self.unacked_frames.front() {
-            let seq = front.sequence;
-            
-            // Determine if this frame should be acknowledged
-            // N(R) = n means frames 0..n-1 are acknowledged
-            let should_ack = if ack_sequence > seq {
-                // Normal case: ack_sequence > seq, so seq < ack_sequence
-                true
-            } else if ack_sequence < seq {
-                // Wrap-around case: ack_sequence < seq
-                // This means we've wrapped around. Frames with seq < ack_sequence
-                // were sent in the previous cycle and should be acknowledged.
-                // Frames with seq >= oldest_sequence are from current cycle and not yet acked.
-                // So we only ack if seq < ack_sequence (from previous cycle)
-                seq < ack_sequence
-            } else {
-                // ack_sequence == seq: This frame is the next expected, don't ack it yet
-                false
-            };
+        // Get the oldest unacknowledged sequence to detect wrap-around
+        let oldest_seq = self.unacked_frames.front()
+            .map(|f| f.sequence)
+            .unwrap_or(ack_sequence);
 
-            if should_ack {
-                self.unacked_frames.pop_front();
-                acked_count += 1;
-            } else {
-                break;
+        // Check if we're in wrap-around case
+        let is_wrap_around = ack_sequence < oldest_seq;
+
+        if is_wrap_around {
+            // Wrap-around case: ack_sequence < oldest_seq
+            // This means we've wrapped around (e.g., sent 7, then 0,1,2,3...)
+            // In this case, frames with seq < ack_sequence are from the previous cycle
+            // and should be acknowledged. These frames might be anywhere in the queue.
+            //
+            // Example: We sent frames 5, 6, 7, then wrapped to 0, 1, 2, 3
+            // Queue: [5, 6, 7, 0, 1, 2, 3] (ordered by send time)
+            // If we receive N(R) = 4, it means frames 0, 1, 2, 3 are acknowledged
+            // (all frames with seq < 4, regardless of their position in the queue)
+            //
+            // Since the queue is ordered by send time (not sequence number), we need to
+            // check all frames. We'll iterate through the queue and remove all frames
+            // with seq < ack_sequence.
+            //
+            // We use a two-pass approach: first collect sequence numbers to remove,
+            // then remove them. This is necessary because VecDeque doesn't support
+            // efficient removal during iteration.
+            //
+            // CRITICAL: In wrap-around case, we acknowledge ALL frames with seq < ack_sequence,
+            // regardless of their position in the queue. This is correct because:
+            // - ack_sequence < oldest_seq means we've wrapped around
+            // - Frames with seq < ack_sequence are from the previous cycle and were sent before
+            //   frames with seq >= oldest_seq (current cycle)
+            // - N(R) = ack_sequence means all frames with N(S) < ack_sequence are acknowledged
+            let sequences_to_remove: Vec<u8> = self.unacked_frames
+                .iter()
+                .filter(|pending| {
+                    // In wrap-around case, acknowledge frames with seq < ack_sequence
+                    // These are from the previous cycle
+                    pending.sequence < ack_sequence
+                })
+                .map(|pending| pending.sequence)
+                .collect();
+
+            // Remove frames with collected sequence numbers
+            // We iterate from back to front to avoid index shifting issues
+            let mut i = 0;
+            while i < self.unacked_frames.len() {
+                if sequences_to_remove.contains(&self.unacked_frames[i].sequence) {
+                    self.unacked_frames.remove(i);
+                    acked_count += 1;
+                    // Don't increment i, as the next element is now at position i
+                } else {
+                    i += 1;
+                }
+            }
+        } else {
+            // Normal case: ack_sequence >= oldest_seq
+            // The queue is ordered by sequence number (since frames are sent in order),
+            // so we can process from front to back and stop when we find a frame that
+            // shouldn't be acknowledged.
+            while let Some(front) = self.unacked_frames.front() {
+                let seq = front.sequence;
+                
+                // N(R) = n means frames 0..n-1 are acknowledged
+                if seq < ack_sequence {
+                    self.unacked_frames.pop_front();
+                    acked_count += 1;
+                } else {
+                    // All subsequent frames also have seq >= ack_sequence
+                    break;
+                }
             }
         }
 

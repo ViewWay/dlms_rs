@@ -6,6 +6,7 @@
 use dlms_application::pdu::{
     GetRequest, GetResponse, SetRequest, SetResponse, ActionRequest, ActionResponse,
     InitiateRequest, InitiateResponse, AccessRequest, AccessResponse,
+    AccessRequestSpecification, AccessResponseSpecification,
     CosemAttributeDescriptor, CosemMethodDescriptor, GetDataResult, SetDataResult, ActionResult,
     InvokeIdAndPriority, Conformance,
 };
@@ -488,6 +489,202 @@ impl DlmsServer {
                 Ok(response)
             }
         }
+    }
+    
+    /// Handle Access Request
+    ///
+    /// Processes an Access request (which can contain multiple GET/SET/ACTION operations)
+    /// and returns the appropriate response.
+    ///
+    /// # Arguments
+    /// * `request` - The AccessRequest PDU
+    /// * `client_sap` - Client Service Access Point address
+    ///
+    /// # Returns
+    /// AccessResponse PDU
+    ///
+    /// # Design
+    /// AccessRequest allows multiple operations in a single request. Each operation
+    /// in the list is processed sequentially, and results are collected into the response.
+    pub async fn handle_access_request(
+        &self,
+        request: &AccessRequest,
+        client_sap: u16,
+    ) -> DlmsResult<AccessResponse> {
+        // Verify association exists
+        let _association = self.get_association(client_sap).await.ok_or_else(|| {
+            DlmsError::InvalidData("No active association for this client".to_string())
+        })?;
+        
+        let invoke_id = request.invoke_id_and_priority.invoke_id();
+        let mut access_response_list = Vec::new();
+        
+        // Process each access request specification
+        for spec in &request.access_request_list {
+            let result = match spec {
+                AccessRequestSpecification::Get { cosem_attribute_descriptor, access_selection } => {
+                    // Find object
+                    let obis = match cosem_attribute_descriptor {
+                        CosemAttributeDescriptor::LogicalName(ln_ref) => ln_ref.instance_id,
+                        CosemAttributeDescriptor::ShortName { .. } => {
+                            // Return error result for this item
+                            access_response_list.push(AccessResponseSpecification::Get(
+                                GetDataResult::new_data_access_result(
+                                    dlms_application::pdu::data_access_result::HARDWARE_FAULT,
+                                ),
+                            ));
+                            continue;
+                        }
+                    };
+                    
+                    // Get attribute
+                    match self.find_object(&obis).await {
+                        Some(object) => {
+                            let attribute_id = match cosem_attribute_descriptor {
+                                CosemAttributeDescriptor::LogicalName(ln_ref) => ln_ref.id,
+                                CosemAttributeDescriptor::ShortName { reference, .. } => reference.id,
+                            };
+                            
+                            match object.get_attribute(attribute_id, access_selection.as_ref()).await {
+                                Ok(value) => {
+                                    AccessResponseSpecification::Get(
+                                        GetDataResult::new_data(value),
+                                    )
+                                }
+                                Err(_) => {
+                                    // Convert error to data access result
+                                    // For now, use hardware fault as generic error
+                                    AccessResponseSpecification::Get(
+                                        GetDataResult::new_data_access_result(
+                                            dlms_application::pdu::data_access_result::HARDWARE_FAULT,
+                                        ),
+                                    )
+                                }
+                            }
+                        }
+                        None => {
+                            AccessResponseSpecification::Get(
+                                GetDataResult::new_data_access_result(
+                                    dlms_application::pdu::data_access_result::OBJECT_UNAVAILABLE,
+                                ),
+                            )
+                        }
+                    }
+                }
+                AccessRequestSpecification::Set { cosem_attribute_descriptor, access_selection, value } => {
+                    // Find object
+                    let obis = match cosem_attribute_descriptor {
+                        CosemAttributeDescriptor::LogicalName(ln_ref) => ln_ref.instance_id,
+                        CosemAttributeDescriptor::ShortName { .. } => {
+                            // Return error result for this item
+                            access_response_list.push(AccessResponseSpecification::Set(
+                                SetDataResult::new_data_access_result(
+                                    dlms_application::pdu::data_access_result::HARDWARE_FAULT,
+                                ),
+                            ));
+                            continue;
+                        }
+                    };
+                    
+                    // Set attribute
+                    match self.find_object(&obis).await {
+                        Some(object) => {
+                            let attribute_id = match cosem_attribute_descriptor {
+                                CosemAttributeDescriptor::LogicalName(ln_ref) => ln_ref.id,
+                                CosemAttributeDescriptor::ShortName { reference, .. } => reference.id,
+                            };
+                            
+                            match object.set_attribute(attribute_id, value.clone(), access_selection.as_ref()).await {
+                                Ok(_) => {
+                                    AccessResponseSpecification::Set(
+                                        SetDataResult::new_success(),
+                                    )
+                                }
+                                Err(_) => {
+                                    // Convert error to data access result
+                                    AccessResponseSpecification::Set(
+                                        SetDataResult::new_data_access_result(
+                                            dlms_application::pdu::data_access_result::HARDWARE_FAULT,
+                                        ),
+                                    )
+                                }
+                            }
+                        }
+                        None => {
+                            AccessResponseSpecification::Set(
+                                SetDataResult::new_data_access_result(
+                                    dlms_application::pdu::data_access_result::OBJECT_UNAVAILABLE,
+                                ),
+                            )
+                        }
+                    }
+                }
+                AccessRequestSpecification::Action { cosem_method_descriptor, method_invocation_parameters } => {
+                    // Find object
+                    let obis = match cosem_method_descriptor {
+                        CosemMethodDescriptor::LogicalName(ln_ref) => ln_ref.instance_id,
+                        CosemMethodDescriptor::ShortName { .. } => {
+                            // Return error result for this item
+                            access_response_list.push(AccessResponseSpecification::Action(
+                                ActionResult::new_data_access_result(
+                                    dlms_application::pdu::action_result::HARDWARE_FAULT,
+                                ),
+                            ));
+                            continue;
+                        }
+                    };
+                    
+                    // Invoke method
+                    match self.find_object(&obis).await {
+                        Some(object) => {
+                            let method_id = match cosem_method_descriptor {
+                                CosemMethodDescriptor::LogicalName(ln_ref) => ln_ref.id,
+                                CosemMethodDescriptor::ShortName { reference, .. } => reference.id,
+                            };
+                            
+                            match object.invoke_method(method_id, method_invocation_parameters.clone()).await {
+                                Ok(return_value) => {
+                                    if let Some(value) = return_value {
+                                        AccessResponseSpecification::Action(
+                                            ActionResult::new_return_parameters(value),
+                                        )
+                                    } else {
+                                        AccessResponseSpecification::Action(
+                                            ActionResult::new_success(),
+                                        )
+                                    }
+                                }
+                                Err(_) => {
+                                    // Convert error to action result
+                                    AccessResponseSpecification::Action(
+                                        ActionResult::new_data_access_result(
+                                            dlms_application::pdu::action_result::HARDWARE_FAULT,
+                                        ),
+                                    )
+                                }
+                            }
+                        }
+                        None => {
+                            AccessResponseSpecification::Action(
+                                ActionResult::new_data_access_result(
+                                    dlms_application::pdu::action_result::OBJECT_UNAVAILABLE,
+                                ),
+                            )
+                        }
+                    }
+                }
+            };
+            
+            access_response_list.push(result);
+        }
+        
+        // Create response
+        let response = AccessResponse::new(
+            InvokeIdAndPriority::new(invoke_id, false)?,
+            access_response_list,
+        )?;
+        
+        Ok(response)
     }
     
     /// Get server configuration

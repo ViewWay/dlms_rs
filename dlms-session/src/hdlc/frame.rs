@@ -9,7 +9,13 @@ use std::fmt;
 pub const FLAG: u8 = 0x7E;
 
 /// Logical Link Control (LLC) Request
+/// Used for client-to-server communication (requests)
 pub const LLC_REQUEST: [u8; 3] = [0xE6, 0xE6, 0x00];
+
+/// Logical Link Control (LLC) Response
+/// Used for server-to-client communication (responses)
+/// According to DLMS standard, responses use 0xE7 in the second byte instead of 0xE6
+pub const LLC_RESPONSE: [u8; 3] = [0xE6, 0xE7, 0x00];
 
 /// HDLC frame type
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
