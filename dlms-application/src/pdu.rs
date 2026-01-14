@@ -65,6 +65,21 @@ pub const DLMS_VERSION_6: u8 = 6;
 /// (typically 1024-4096 bytes) to optimize memory usage.
 pub const MAX_PDU_SIZE: u16 = 65535;
 
+/// Conformance encoding mode
+///
+/// DLMS/COSEM allows two different encoding formats for the Conformance field:
+/// - **BER**: ASN.1 Basic Encoding Rules (standard, per DLMS Green Book)
+/// - **A-XDR**: Adapted eXtended Data Representation (legacy, some devices)
+///
+/// Most modern devices use BER encoding, but some legacy devices may use A-XDR.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConformanceEncodingMode {
+    /// BER encoding - ASN.1 standard (preferred)
+    Ber,
+    /// A-XDR encoding - legacy format (for backward compatibility)
+    Axdr,
+}
+
 /// Conformance bits for DLMS/COSEM protocol negotiation
 ///
 /// Conformance is a 24-bit bitstring that indicates which DLMS/COSEM features
@@ -271,10 +286,43 @@ impl Conformance {
         }
         
         let bit_string_bytes = &value_bytes[1..4]; // Skip unused_bits byte
-        
+
         // Create BitString from bytes
         let bits = dlms_core::datatypes::BitString::from_bytes(bit_string_bytes.to_vec(), 24);
         Self::from_bit_string(bits)
+    }
+
+    /// Encode conformance using the specified encoding mode
+    ///
+    /// # Arguments
+    /// * `mode` - Encoding mode (Ber for ASN.1 standard, Axdr for legacy)
+    ///
+    /// # Returns
+    /// Returns encoded bytes according to the specified mode.
+    ///
+    /// # Note
+    /// - **Ber mode**: Returns [APPLICATION 31] IMPLICIT BIT STRING encoding (per DLMS Green Book)
+    /// - **Axdr mode**: Returns A-XDR BitString encoding (for backward compatibility)
+    pub fn encode_with_mode(&self, mode: ConformanceEncodingMode) -> DlmsResult<Vec<u8>> {
+        match mode {
+            ConformanceEncodingMode::Ber => self.encode_ber(),
+            ConformanceEncodingMode::Axdr => self.encode(),
+        }
+    }
+
+    /// Decode conformance from data using the specified encoding mode
+    ///
+    /// # Arguments
+    /// * `data` - Encoded bytes
+    /// * `mode` - Encoding mode (Ber for ASN.1 standard, Axdr for legacy)
+    ///
+    /// # Returns
+    /// Returns `Ok(Conformance)` if decoding succeeds, `Err` otherwise
+    pub fn decode_with_mode(data: &[u8], mode: ConformanceEncodingMode) -> DlmsResult<Self> {
+        match mode {
+            ConformanceEncodingMode::Ber => Self::decode_ber(data),
+            ConformanceEncodingMode::Axdr => Self::decode(data),
+        }
     }
 
     /// Set a specific conformance bit
@@ -697,9 +745,113 @@ impl InitiateRequest {
         // 4. proposed_dlms_version_number (Unsigned8)
         let proposed_dlms_version_number = decoder.decode_u8()?;
 
-        // 5. proposed_conformance (BitString)
-        let conformance_bits = decoder.decode_bit_string()?;
-        let proposed_conformance = Conformance::from_bit_string(conformance_bits)?;
+        // 5. proposed_conformance (BitString, 24 bits)
+        // According to ASN.1 specification, Conformance shall be encoded in BER
+        // In A-XDR, we decode the BER-encoded bytes from an OCTET STRING
+        let conformance_ber_bytes = decoder.decode_octet_string()?;
+        let proposed_conformance = Conformance::decode_ber(&conformance_ber_bytes)?;
+
+        // 6. client_max_receive_pdu_size (Unsigned16)
+        let client_max_receive_pdu_size = decoder.decode_u16()?;
+
+        Ok(Self {
+            dedicated_key,
+            response_allowed,
+            proposed_quality_of_service,
+            proposed_dlms_version_number,
+            proposed_conformance,
+            client_max_receive_pdu_size,
+        })
+    }
+
+    /// Encode InitiateRequest using the specified conformance encoding mode
+    ///
+    /// # Arguments
+    /// * `mode` - Conformance encoding mode (Ber for standard, Axdr for legacy)
+    ///
+    /// # Returns
+    /// Returns encoded bytes according to the specified mode.
+    ///
+    /// # Note
+    /// This method allows compatibility with both standard-compliant devices (BER)
+    /// and legacy devices (A-XDR) that may use different conformance encoding.
+    pub fn encode_with_mode(&self, mode: ConformanceEncodingMode) -> DlmsResult<Vec<u8>> {
+        let mut encoder = AxdrEncoder::new();
+
+        // Encode in reverse order (A-XDR convention)
+        // 1. client_max_receive_pdu_size (Unsigned16)
+        encoder.encode_u16(self.client_max_receive_pdu_size)?;
+
+        // 2. proposed_conformance (BitString, 24 bits)
+        // Encode using the specified mode
+        let conformance_bytes = self.proposed_conformance.encode_with_mode(mode)?;
+        encoder.encode_octet_string(&conformance_bytes)?;
+
+        // 3. proposed_dlms_version_number (Unsigned8)
+        encoder.encode_u8(self.proposed_dlms_version_number)?;
+
+        // 4. proposed_quality_of_service (optional Integer8)
+        encoder.encode_bool(self.proposed_quality_of_service.is_some())?;
+        if let Some(qos) = self.proposed_quality_of_service {
+            encoder.encode_i8(qos)?;
+        }
+
+        // 5. response_allowed (Boolean, default true)
+        encoder.encode_bool(self.response_allowed)?;
+
+        // 6. dedicated_key (optional OctetString)
+        encoder.encode_bool(self.dedicated_key.is_some())?;
+        if let Some(ref key) = self.dedicated_key {
+            encoder.encode_octet_string(key)?;
+        }
+
+        Ok(encoder.into_bytes())
+    }
+
+    /// Decode InitiateRequest from data using the specified conformance encoding mode
+    ///
+    /// # Arguments
+    /// * `data` - Encoded bytes
+    /// * `mode` - Conformance encoding mode (Ber for standard, Axdr for legacy)
+    ///
+    /// # Returns
+    /// Returns `Ok(InitiateRequest)` if decoding succeeds, `Err` otherwise
+    ///
+    /// # Note
+    /// This method allows compatibility with both standard-compliant devices (BER)
+    /// and legacy devices (A-XDR) that may use different conformance encoding.
+    pub fn decode_with_mode(data: &[u8], mode: ConformanceEncodingMode) -> DlmsResult<Self> {
+        let mut decoder = AxdrDecoder::new(data);
+
+        // Decode in reverse order (A-XDR convention)
+        // 1. dedicated_key (optional OctetString)
+        let dedicated_key_used = decoder.decode_bool()?;
+        let dedicated_key = if dedicated_key_used {
+            Some(decoder.decode_octet_string()?)
+        } else {
+            None
+        };
+
+        // 2. response_allowed (Boolean)
+        let response_allowed = decoder.decode_bool()?;
+
+        // 3. proposed_quality_of_service (optional Integer8)
+        let proposed_quality_of_service = {
+            let qos_used = decoder.decode_bool()?;
+            if qos_used {
+                Some(decoder.decode_i8()?)
+            } else {
+                None
+            }
+        };
+
+        // 4. proposed_dlms_version_number (Unsigned8)
+        let proposed_dlms_version_number = decoder.decode_u8()?;
+
+        // 5. proposed_conformance (BitString, 24 bits)
+        // Decode using the specified mode
+        let conformance_bytes = decoder.decode_octet_string()?;
+        let proposed_conformance = Conformance::decode_with_mode(&conformance_bytes, mode)?;
 
         // 6. client_max_receive_pdu_size (Unsigned16)
         let client_max_receive_pdu_size = decoder.decode_u16()?;
@@ -714,6 +866,7 @@ impl InitiateRequest {
         })
     }
 }
+
 
 impl Default for InitiateRequest {
     fn default() -> Self {
@@ -866,6 +1019,93 @@ impl InitiateResponse {
         // In A-XDR, we decode the BER-encoded bytes from an OCTET STRING
         let conformance_ber_bytes = decoder.decode_octet_string()?;
         let negotiated_conformance = Conformance::decode_ber(&conformance_ber_bytes)?;
+
+        // 4. server_max_receive_pdu_size (Unsigned16)
+        let server_max_receive_pdu_size = decoder.decode_u16()?;
+
+        // 5. vaa_name (Integer16)
+        let vaa_name = decoder.decode_i16()?;
+
+        Ok(Self {
+            negotiated_quality_of_service,
+            negotiated_dlms_version_number,
+            negotiated_conformance,
+            server_max_receive_pdu_size,
+            vaa_name,
+        })
+    }
+
+    /// Encode InitiateResponse using the specified conformance encoding mode
+    ///
+    /// # Arguments
+    /// * `mode` - Conformance encoding mode (Ber for standard, Axdr for legacy)
+    ///
+    /// # Returns
+    /// Returns encoded bytes according to the specified mode.
+    ///
+    /// # Note
+    /// This method allows compatibility with both standard-compliant devices (BER)
+    /// and legacy devices (A-XDR) that may use different conformance encoding.
+    pub fn encode_with_mode(&self, mode: ConformanceEncodingMode) -> DlmsResult<Vec<u8>> {
+        let mut encoder = AxdrEncoder::new();
+
+        // Encode in reverse order (A-XDR convention)
+        // 1. vaa_name (Integer16)
+        encoder.encode_i16(self.vaa_name)?;
+
+        // 2. server_max_receive_pdu_size (Unsigned16)
+        encoder.encode_u16(self.server_max_receive_pdu_size)?;
+
+        // 3. negotiated_conformance (BitString, 24 bits)
+        // Encode using the specified mode
+        let conformance_bytes = self.negotiated_conformance.encode_with_mode(mode)?;
+        encoder.encode_octet_string(&conformance_bytes)?;
+
+        // 4. negotiated_dlms_version_number (Unsigned8)
+        encoder.encode_u8(self.negotiated_dlms_version_number)?;
+
+        // 5. negotiated_quality_of_service (optional Integer8)
+        encoder.encode_bool(self.negotiated_quality_of_service.is_some())?;
+        if let Some(qos) = self.negotiated_quality_of_service {
+            encoder.encode_i8(qos)?;
+        }
+
+        Ok(encoder.into_bytes())
+    }
+
+    /// Decode InitiateResponse from data using the specified conformance encoding mode
+    ///
+    /// # Arguments
+    /// * `data` - Encoded bytes
+    /// * `mode` - Conformance encoding mode (Ber for standard, Axdr for legacy)
+    ///
+    /// # Returns
+    /// Returns `Ok(InitiateResponse)` if decoding succeeds, `Err` otherwise
+    ///
+    /// # Note
+    /// This method allows compatibility with both standard-compliant devices (BER)
+    /// and legacy devices (A-XDR) that may use different conformance encoding.
+    pub fn decode_with_mode(data: &[u8], mode: ConformanceEncodingMode) -> DlmsResult<Self> {
+        let mut decoder = AxdrDecoder::new(data);
+
+        // Decode in reverse order (A-XDR convention)
+        // 1. negotiated_quality_of_service (optional Integer8)
+        let negotiated_quality_of_service = {
+            let qos_used = decoder.decode_bool()?;
+            if qos_used {
+                Some(decoder.decode_i8()?)
+            } else {
+                None
+            }
+        };
+
+        // 2. negotiated_dlms_version_number (Unsigned8)
+        let negotiated_dlms_version_number = decoder.decode_u8()?;
+
+        // 3. negotiated_conformance (BitString, 24 bits)
+        // Decode using the specified mode
+        let conformance_bytes = decoder.decode_octet_string()?;
+        let negotiated_conformance = Conformance::decode_with_mode(&conformance_bytes, mode)?;
 
         // 4. server_max_receive_pdu_size (Unsigned16)
         let server_max_receive_pdu_size = decoder.decode_u16()?;
@@ -2229,6 +2469,157 @@ mod tests {
         let encoded = conformance.encode().unwrap();
         let decoded = Conformance::decode(&encoded).unwrap();
         assert_eq!(conformance, decoded);
+    }
+
+    #[test]
+    fn test_conformance_encode_decode_ber() {
+        let mut conformance = Conformance::new();
+        // Set some bits
+        conformance.set_bit(19, true).unwrap(); // GET
+        conformance.set_bit(20, true).unwrap(); // SET
+        conformance.set_bit(23, true).unwrap(); // ACTION
+
+        // BER encode/decode
+        let encoded = conformance.encode_ber().unwrap();
+        let decoded = Conformance::decode_ber(&encoded).unwrap();
+
+        assert_eq!(conformance, decoded);
+        assert_eq!(decoded.get_bit(19), Some(true)); // GET
+        assert_eq!(decoded.get_bit(20), Some(true)); // SET
+        assert_eq!(decoded.get_bit(23), Some(true)); // ACTION
+    }
+
+    #[test]
+    fn test_conformance_encode_with_mode_ber() {
+        let mut conformance = Conformance::new();
+        conformance.set_bit(21, true).unwrap(); // Selective access
+
+        // BER mode
+        let encoded_ber = conformance.encode_with_mode(ConformanceEncodingMode::Ber).unwrap();
+        let decoded_ber = Conformance::decode_with_mode(&encoded_ber, ConformanceEncodingMode::Ber).unwrap();
+
+        assert_eq!(conformance, decoded_ber);
+        assert_eq!(decoded_ber.get_bit(21), Some(true));
+    }
+
+    #[test]
+    fn test_conformance_encode_with_mode_axdr() {
+        let mut conformance = Conformance::new();
+        conformance.set_bit(3, true).unwrap(); // Block read
+
+        // A-XDR mode
+        let encoded_axdr = conformance.encode_with_mode(ConformanceEncodingMode::Axdr).unwrap();
+        let decoded_axdr = Conformance::decode_with_mode(&encoded_axdr, ConformanceEncodingMode::Axdr).unwrap();
+
+        assert_eq!(conformance, decoded_axdr);
+        assert_eq!(decoded_axdr.get_bit(3), Some(true));
+    }
+
+    #[test]
+    fn test_initiate_request_encode_decode_with_mode_ber() {
+        let mut conformance = Conformance::new();
+        conformance.set_bit(19, true).unwrap(); // GET
+        let request = InitiateRequest::with_params(conformance, 1024).unwrap();
+
+        // BER mode (standard)
+        let encoded = request.encode_with_mode(ConformanceEncodingMode::Ber).unwrap();
+        let decoded = InitiateRequest::decode_with_mode(&encoded, ConformanceEncodingMode::Ber).unwrap();
+
+        assert_eq!(request.proposed_dlms_version_number, decoded.proposed_dlms_version_number);
+        assert_eq!(request.client_max_receive_pdu_size, decoded.client_max_receive_pdu_size);
+        assert_eq!(request.proposed_conformance, decoded.proposed_conformance);
+        assert_eq!(decoded.proposed_conformance.get_bit(19), Some(true));
+    }
+
+    #[test]
+    fn test_initiate_request_encode_decode_with_mode_axdr() {
+        let mut conformance = Conformance::new();
+        conformance.set_bit(20, true).unwrap(); // SET
+        let request = InitiateRequest::with_params(conformance, 2048).unwrap();
+
+        // A-XDR mode (legacy)
+        let encoded = request.encode_with_mode(ConformanceEncodingMode::Axdr).unwrap();
+        let decoded = InitiateRequest::decode_with_mode(&encoded, ConformanceEncodingMode::Axdr).unwrap();
+
+        assert_eq!(request.proposed_dlms_version_number, decoded.proposed_dlms_version_number);
+        assert_eq!(request.client_max_receive_pdu_size, decoded.client_max_receive_pdu_size);
+        assert_eq!(request.proposed_conformance, decoded.proposed_conformance);
+        assert_eq!(decoded.proposed_conformance.get_bit(20), Some(true));
+    }
+
+    #[test]
+    fn test_initiate_response_encode_decode_with_mode_ber() {
+        let mut conformance = Conformance::new();
+        conformance.set_bit(23, true).unwrap(); // ACTION
+        let response = InitiateResponse::new(
+            DLMS_VERSION_6,
+            conformance,
+            1024,
+            0x0007,
+        ).unwrap();
+
+        // BER mode (standard)
+        let encoded = response.encode_with_mode(ConformanceEncodingMode::Ber).unwrap();
+        let decoded = InitiateResponse::decode_with_mode(&encoded, ConformanceEncodingMode::Ber).unwrap();
+
+        assert_eq!(response.negotiated_dlms_version_number, decoded.negotiated_dlms_version_number);
+        assert_eq!(response.server_max_receive_pdu_size, decoded.server_max_receive_pdu_size);
+        assert_eq!(response.vaa_name, decoded.vaa_name);
+        assert_eq!(response.negotiated_conformance, decoded.negotiated_conformance);
+        assert_eq!(decoded.negotiated_conformance.get_bit(23), Some(true));
+    }
+
+    #[test]
+    fn test_initiate_response_encode_decode_with_mode_axdr() {
+        let mut conformance = Conformance::new();
+        conformance.set_bit(18, true).unwrap(); // Parameterized access
+        let response = InitiateResponse::new(
+            DLMS_VERSION_6,
+            conformance,
+            2048,
+            0x0007,
+        ).unwrap();
+
+        // A-XDR mode (legacy)
+        let encoded = response.encode_with_mode(ConformanceEncodingMode::Axdr).unwrap();
+        let decoded = InitiateResponse::decode_with_mode(&encoded, ConformanceEncodingMode::Axdr).unwrap();
+
+        assert_eq!(response.negotiated_dlms_version_number, decoded.negotiated_dlms_version_number);
+        assert_eq!(response.server_max_receive_pdu_size, decoded.server_max_receive_pdu_size);
+        assert_eq!(response.vaa_name, decoded.vaa_name);
+        assert_eq!(response.negotiated_conformance, decoded.negotiated_conformance);
+        assert_eq!(decoded.negotiated_conformance.get_bit(18), Some(true));
+    }
+
+    #[test]
+    fn test_initiate_request_default_uses_ber() {
+        let mut conformance = Conformance::new();
+        conformance.set_bit(19, true).unwrap(); // GET
+        let request = InitiateRequest::with_params(conformance, 1024).unwrap();
+
+        // Default encode() should use BER
+        let encoded = request.encode().unwrap();
+        let decoded = InitiateRequest::decode(&encoded).unwrap();
+
+        assert_eq!(request.proposed_conformance, decoded.proposed_conformance);
+        assert_eq!(decoded.proposed_conformance.get_bit(19), Some(true));
+    }
+
+    #[test]
+    fn test_conformance_ber_encoding_format() {
+        let mut conformance = Conformance::new();
+        conformance.set_bit(19, true).unwrap(); // GET
+        conformance.set_bit(20, true).unwrap(); // SET
+
+        let encoded = conformance.encode_ber().unwrap();
+
+        // BER encoding should start with APPLICATION 31 tag (0x7F)
+        assert_eq!(encoded[0], 0x7F);
+
+        // Verify we can decode it back
+        let decoded = Conformance::decode_ber(&encoded).unwrap();
+        assert_eq!(decoded.get_bit(19), Some(true));
+        assert_eq!(decoded.get_bit(20), Some(true));
     }
 
     #[test]

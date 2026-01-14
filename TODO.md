@@ -2,15 +2,137 @@
 
 本文档记录了DLMS/COSEM Rust实现项目的所有待办事项，按模块和优先级分类。
 
-**最后更新**: 2025-01-14
+**最后更新**: 2025-01-15
 
 ---
 
 ## 📊 总体进度
 
 - **已完成**: 核心协议栈（传输层、会话层、安全层、应用层基础功能）
-- **进行中**: 服务器实现、xDLMS高级功能、DLMS绿皮书功能完善
-- **待实现**: 接口类、高级功能、优化
+- **进行中**: 服务器实现、COSEM接口类、COSEM-OPEN/RELEASE服务
+- **待实现**: 加密PDU、SN寻址PDU、更多接口类、高级功能
+
+---
+
+## 🔥 来自dlms-docs的需求汇总
+
+根据 `dlms-docs/requirements/` 目录下的需求文档整理：
+
+### 📋 需求文档符合度总览
+
+| 需求类别 | 完成度 | 详细文档 |
+|---------|--------|----------|
+| 术语实现 | 75% | [TERMS_IMPLEMENTATION.md](dlms-docs/TERMS_IMPLEMENTATION.md) |
+| COSEM-OPEN服务 | 50% | [COSEM_OPEN_ANALYSIS.md](dlms-docs/COSEM_OPEN_ANALYSIS.md) |
+| COSEM-RELEASE服务 | 40% | [REQUIREMENTS_SUMMARY.md](dlms-docs/requirements/COSEM_RELEASE_REQUIREMENTS.md) |
+| COSEM PDU ASN.1 | 50% | [COSEM_PDU_ASN1_REQUIREMENTS.md](dlms-docs/requirements/COSEM_PDU_ASN1_REQUIREMENTS.md) |
+| HDLC符合性 | 95% | [IMPLEMENTATION_COMPLIANCE_CHECK.md](dlms-docs/IMPLEMENTATION_COMPLIANCE_CHECK.md) |
+| C++实现对比 | 70% | [IMPLEMENTATION_COMPARISON_REPORT.md](dlms-docs/IMPLEMENTATION_COMPARISON_REPORT.md) |
+
+### 🔴 最高优先级需求（影响协议符合度）
+
+#### 1. Conformance编码方式修复 ❌
+- **问题**: 当前使用A-XDR编码，规范要求BER编码
+- **影响**: 与DLMS标准不一致，可能导致兼容性问题
+- **文档**: `dlms-docs/requirements/COSEM_PDU_ASN1_REQUIREMENTS.md`
+- **位置**: `dlms-application/src/pdu.rs` (Conformance编码/解码)
+- **状态**: ⏳ 待实现
+
+#### 2. COSEM-OPEN服务原语 ❌
+- **缺失**: CosemOpenRequest、CosemOpenConfirm服务原语
+- **需求**: 明确的OPEN.request和OPEN.confirm服务抽象
+- **文档**: `dlms-docs/COSEM_OPEN_ANALYSIS.md`
+- **位置**: `dlms-application/src/service/open.rs` (新建)
+- **状态**: ⏳ 待实现
+
+#### 3. COSEM-RELEASE服务原语 ❌
+- **缺失**: CosemReleaseRequest、CosemReleaseConfirm、CosemAbortIndication
+- **需求**: 明确的RELEASE和ABORT服务抽象
+- **文档**: `dlms-docs/requirements/COSEM_RELEASE_REQUIREMENTS.md`
+- **位置**: `dlms-application/src/service/release.rs` (新建)
+- **状态**: ⏳ 待实现
+
+#### 4. AARQ/AARE封装 ❌
+- **问题**: InitiateRequest未插入AARQ的user_Information域
+- **需求**: 按照DLMS绿皮书规范，InitiateRequest应封装在AARQ中
+- **文档**: `dlms-docs/requirements/COSEM_PDU_ASN1_REQUIREMENTS.md`
+- **位置**: `dlms-application/src/association.rs`
+- **状态**: ⏳ 待实现
+
+### 🟡 高优先级需求（功能完整性）
+
+#### 5. 加密PDU支持 ❌
+- **缺失**: 所有全局加密PDU（glo-*，17种）和专用加密PDU（ded-*，17种）
+- **需求**: 共34种加密PDU类型
+- **文档**: `dlms-docs/requirements/COSEM_PDU_ASN1_REQUIREMENTS.md`
+- **位置**: `dlms-application/src/pdu.rs`
+- **状态**: ⏳ 待实现
+
+#### 6. SN寻址PDU ❌
+- **缺失**: ReadRequest/ReadResponse、WriteRequest/WriteResponse等6种PDU
+- **需求**: 完整的Short Name寻址支持
+- **文档**: `dlms-docs/requirements/COSEM_PDU_ASN1_REQUIREMENTS.md`
+- **位置**: `dlms-application/src/pdu.rs`
+- **状态**: ⏳ 待实现
+
+#### 7. ConfirmedServiceError ❌
+- **缺失**: 服务错误处理PDU
+- **需求**: 完整的错误诊断信息
+- **文档**: `dlms-docs/requirements/COSEM_PDU_ASN1_REQUIREMENTS.md`
+- **位置**: `dlms-application/src/pdu.rs`
+- **状态**: ⏳ 待实现
+
+### 🟢 中优先级需求（增强功能）
+
+#### 8. LLC Header处理 ⚠️
+- **问题**: HDLC连接中LLC header处理不明确
+- **需求**: 在信息帧前添加LLC header（0xE6, 0xE6, 0x00）
+- **文档**: `dlms-docs/IMPLEMENTATION_COMPARISON_REPORT.md`
+- **位置**: `dlms-session/src/hdlc/connection.rs`
+- **状态**: ⚠️ 部分实现（常量已定义，但未使用）
+
+#### 9. ISO-ACSE高级功能 ⚠️
+- **缺失**: ApplicationContextNameList、完整CHOICE支持、ACSE Requirements位定义
+- **文档**: `dlms-docs/requirements/COSEM_PDU_ASN1_REQUIREMENTS.md`
+- **位置**: `dlms-asn1/src/iso_acse/`
+- **状态**: ⚠️ 基础完成，高级功能待实现
+
+#### 10. Data-Notification和InformationReportRequest ❌
+- **缺失**: 两种通用PDU类型
+- **需求**: 支持数据通知和信息报告
+- **文档**: `dlms-docs/requirements/COSEM_PDU_ASN1_REQUIREMENTS.md`
+- **位置**: `dlms-application/src/pdu.rs`
+- **状态**: ⏳ 待实现
+
+### 📌 低优先级需求（待确认）
+
+#### 11. SHA-1算法 ❓
+- **问题**: 当前使用SHA-256，需要确认DLMS/COSEM是否要求SHA-1
+- **需求**: 如果协议要求，需要实现SHA-1
+- **文档**: `dlms-docs/requirements/SHA1_ALGORITHM_REQUIREMENTS.md`
+- **状态**: ❓ 待确认
+
+### ✅ 已完成的重要功能
+
+以下功能已根据文档要求完成实现：
+
+1. **✅ HCS (Header Check Sequence)** - `dlms-session/src/hdlc/frame.rs`
+2. **✅ HDLC连接建立流程 (SNRM/UA)** - `dlms-session/src/hdlc/connection.rs`
+3. **✅ UA帧参数解析** - `dlms-session/src/hdlc/connection.rs`
+4. **✅ RR帧自动发送** - `dlms-session/src/hdlc/connection.rs`
+5. **✅ 帧重传机制** - `dlms-session/src/hdlc/window.rs`
+6. **✅ 窗口管理 (SendWindow/ReceiveWindow)** - `dlms-session/src/hdlc/window.rs`
+7. **✅ 服务器基础框架 (DlmsServer, CosemObject)** - `dlms-server/src/server.rs`
+8. **✅ 服务器监听器 (ServerListener, ClientHandler)** - `dlms-server/src/listener.rs`
+9. **✅ 认证挑战-响应流程** - `dlms-security/src/auth_flow.rs`
+10. **✅ Data接口类 (Class ID: 1)** - `dlms-interface/src/data.rs`
+11. **✅ Register接口类 (Class ID: 3)** - `dlms-interface/src/register.rs`
+12. **✅ 访问选择器** - `dlms-application/src/selective_access.rs`
+13. **✅ 协议识别服务** - `dlms-application/src/protocol_identification.rs`
+14. **✅ 加密帧构建和解析** - `dlms-security/src/encryption.rs`
+15. **✅ 帧计数器验证** - `dlms-security/src/encryption.rs`
+
+---
 
 ---
 
@@ -738,15 +860,36 @@
 
 ## 📌 近期重点（Next Sprint）
 
-1. ✅ **服务器端SNRM/UA握手实现** (已完成)
-2. ✅ **请求解析和路由** (已完成)
-3. ✅ **加密帧构建和解析** (已完成)
-4. ✅ **帧计数器验证** (已完成)
-5. ✅ **完整的访问选择器支持** (已完成)
-6. ✅ **协议识别服务** (已完成)
-7. **COSEM接口类实现** (高优先级 - Data, Register, Profile Generic等)
-8. **认证挑战-响应流程** (中优先级)
-9. **访问控制列表（ACL）** (中优先级)
+### ✅ 已完成（2025-01-15之前）
+1. ✅ **服务器端SNRM/UA握手实现** - `dlms-server/src/listener.rs`
+2. ✅ **请求解析和路由** - `dlms-server/src/listener.rs`
+3. ✅ **加密帧构建和解析** - `dlms-security/src/encryption.rs`
+4. ✅ **帧计数器验证** - `dlms-security/src/encryption.rs`
+5. ✅ **完整的访问选择器支持** - `dlms-application/src/selective_access.rs`
+6. ✅ **协议识别服务** - `dlms-application/src/protocol_identification.rs`
+7. ✅ **认证挑战-响应流程** - `dlms-security/src/auth_flow.rs`
+8. ✅ **Data接口类实现** - `dlms-interface/src/data.rs`
+9. ✅ **Register接口类实现** - `dlms-interface/src/register.rs`
+10. ✅ **窗口管理和帧重传** - `dlms-session/src/hdlc/window.rs`
+
+### ⏳ 当前Sprint（2025-01-15开始）
+
+#### 🔴 最高优先级
+1. **修复Conformance编码方式**（BER编码，不是A-XDR）
+2. **实现COSEM-OPEN服务原语**（CosemOpenRequest/Confirm）
+3. **实现COSEM-RELEASE服务原语**（CosemReleaseRequest/Confirm/Abort）
+4. **实现AARQ/AARE封装**（InitiateRequest插入user_Information域）
+
+#### 🟡 高优先级
+5. **实现加密PDU支持**（glo-*/ded-*，34种PDU）
+6. **实现SN寻址PDU**（ReadRequest/WriteRequest等，6种PDU）
+7. **实现ConfirmedServiceError**
+
+#### 🟢 中优先级
+8. **完善LLC Header处理**
+9. **实现ISO-ACSE高级功能**
+10. **实现Data-Notification和InformationReportRequest**
+11. **COSEM接口类**（Profile Generic, Clock, Extended Register等）
 
 ---
 
@@ -761,6 +904,22 @@
 
 ## 🔄 更新历史
 
+- 2025-01-15: 整合dlms-docs需求并更新TODO
+  - 阅读并整理`dlms-docs/`目录下所有需求文档
+  - 添加"来自dlms-docs的需求汇总"章节
+  - 更新符合度总览和最高优先级需求
+  - 更新近期重点Sprint计划
+  - 详细文档位置：
+    - `dlms-docs/requirements/REQUIREMENTS_SUMMARY.md`
+    - `dlms-docs/requirements/COSEM_PDU_ASN1_REQUIREMENTS.md`
+    - `dlms-docs/requirements/COSEM_RELEASE_REQUIREMENTS.md`
+    - `dlms-docs/COSEM_OPEN_ANALYSIS.md`
+    - `dlms-docs/IMPLEMENTATION_COMPLIANCE_CHECK.md`
+    - `dlms-docs/IMPLEMENTATION_COMPARISON_REPORT.md`
+    - `dlms-docs/SERVER_IMPLEMENTATION_SUMMARY.md`
+    - `dlms-docs/WINDOW_MANAGEMENT_IMPLEMENTATION.md`
+    - `dlms-docs/LISTENER_IMPLEMENTATION_SUMMARY.md`
+    - `dlms-docs/COSEM_LIBRARY_IMPROVEMENTS.md`
 - 2025-01-14: COSEM PDU ASN.1定义符合度分析
   - 创建COSEM_PDU_ASN1_REQUIREMENTS.md文档
   - 分析COSEMpdu ASN.1定义的完整符合度

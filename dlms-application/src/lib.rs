@@ -54,7 +54,7 @@ pub mod addressing;
 pub mod protocol_identification;
 
 pub use pdu::{
-    InitiateRequest, InitiateResponse, Conformance, DLMS_VERSION_6, MAX_PDU_SIZE,
+    InitiateRequest, InitiateResponse, Conformance, ConformanceEncodingMode, DLMS_VERSION_6, MAX_PDU_SIZE,
     GetRequest, GetResponse, GetRequestNormal, GetResponseNormal,
     SetRequest, SetResponse, SetRequestNormal, SetResponseNormal, SetDataResult,
     ActionRequest, ActionResponse, ActionRequestNormal, ActionResponseNormal, ActionResult,
