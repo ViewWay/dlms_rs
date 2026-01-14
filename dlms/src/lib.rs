@@ -63,6 +63,7 @@
 //! - [x] 帧计数器验证（重放攻击检测和计数器同步）
 //! - [x] 完整的访问选择器支持（EntryIndex、DateRange、ValueRange）
 //! - [x] KDF算法完善（支持AES-128/192/256，符合DLMS标准）
+//! - [x] 协议识别服务（ProtocolIdentification - 自动识别协议版本、特性和设备能力）
 //! 
 //! ### 中优先级
 //! - [ ] ISO-ACSE高级功能（ApplicationContextNameList、完整CHOICE支持等）
@@ -72,7 +73,8 @@
 //! 
 //! ### 低优先级
 //! - [ ] COSEM ASN.1 结构
-//! - [ ] 接口类实现（Data、Register、Profile Generic、Clock等）
+//! - [x] 接口类实现 - Data接口类（Class ID: 1）和Register接口类（Class ID: 3）已实现
+//! - [ ] 其他接口类（Extended Register、Profile Generic、Clock等）待实现
 //! - [ ] 传输层优化（连接池、自动重连、统计信息等）
 //! - [ ] 性能优化和代码质量提升
 //!

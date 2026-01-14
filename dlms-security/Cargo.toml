@@ -20,3 +20,5 @@ hmac = { workspace = true }
 sha2 = { workspace = true }
 dlms-core = { path = "../dlms-core" }
 bytes = { workspace = true }
+rand = "0.8"
+rand = "0.8"

@@ -51,6 +51,7 @@ pub mod service {
     pub use event::EventNotificationService;
 }
 pub mod addressing;
+pub mod protocol_identification;
 
 pub use pdu::{
     InitiateRequest, InitiateResponse, Conformance, DLMS_VERSION_6, MAX_PDU_SIZE,
@@ -69,3 +70,6 @@ pub use addressing::{LogicalNameReference, ShortNameReference, AccessSelector};
 // Re-export error code constants for convenience
 pub use pdu::data_access_result;
 pub use pdu::action_result;
+
+// Re-export protocol identification
+pub use protocol_identification::{ProtocolIdentification, ProtocolInfo};

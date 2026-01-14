@@ -5,7 +5,8 @@
 //! # TODO
 //!
 //! ## 接口类定义
-//! - [ ] Data 接口类（Class ID: 1）
+//! - [x] Data 接口类（Class ID: 1） - 已实现
+//! - [x] Register 接口类（Class ID: 3） - 已实现（包含ScalerUnit支持）
 //! - [ ] Register 接口类（Class ID: 3）
 //! - [ ] Extended Register 接口类（Class ID: 4）
 //! - [ ] Demand Register 接口类（Class ID: 5）
@@ -50,3 +51,10 @@
 pub mod attribute;
 pub mod method;
 pub mod macros;
+pub mod data;
+pub mod scaler_unit;
+pub mod register;
+
+pub use data::Data;
+pub use scaler_unit::{ScalerUnit, units};
+pub use register::Register;

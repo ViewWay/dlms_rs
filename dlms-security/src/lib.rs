@@ -16,9 +16,9 @@
 //! - [x] GMAC 认证
 //! - [x] Low-level 认证（密码）
 //! - [x] HLS5-GMAC 认证
-//! - [ ] 认证挑战-响应流程
+//! - [x] 认证挑战-响应流程（AuthenticationFlow）
 //! - [ ] 密钥协商机制
-//! - [ ] 认证状态管理
+//! - [x] 认证状态管理（AuthenticationState）
 //!
 //! ## 密钥管理
 //! - [x] AES 密钥生成
@@ -42,6 +42,7 @@ pub mod error;
 pub mod suite;
 pub mod encryption;
 pub mod authentication;
+pub mod auth_flow;
 pub mod utils;
 pub mod constants;
 pub mod xdlms;
@@ -53,6 +54,7 @@ pub use suite::{
 };
 pub use encryption::{AesGcmEncryption, SecurityControl};
 pub use authentication::{GmacAuth, LowAuth, Hls5GmacAuth};
+pub use auth_flow::{AuthenticationFlow, AuthenticationMechanism, AuthenticationState};
 pub use utils::{KeyId, generate_aes128_key, wrap_aes_rfc3394_key, unwrap_aes_rfc3394_key};
 pub use constants::*;
 pub use xdlms::{SystemTitle, FrameCounter, KeyDerivationFunction, XdlmsContext};

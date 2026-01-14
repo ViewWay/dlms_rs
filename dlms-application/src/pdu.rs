@@ -149,6 +149,10 @@ impl Conformance {
     /// Encode conformance to A-XDR format
     ///
     /// Encoding format: BitString (4 bytes: 1 byte length + 3 bytes data)
+    ///
+    /// # Note
+    /// This method is for backward compatibility. For InitiateRequest/Response,
+    /// use `encode_ber()` instead, as per ASN.1 specification.
     pub fn encode(&self) -> DlmsResult<Vec<u8>> {
         let mut encoder = AxdrEncoder::new();
         encoder.encode_bit_string(&self.bits)?;
@@ -156,9 +160,120 @@ impl Conformance {
     }
 
     /// Decode conformance from A-XDR format
+    ///
+    /// # Note
+    /// This method is for backward compatibility. For InitiateRequest/Response,
+    /// use `decode_ber()` instead, as per ASN.1 specification.
     pub fn decode(data: &[u8]) -> DlmsResult<Self> {
         let mut decoder = AxdrDecoder::new(data);
         let bits = decoder.decode_bit_string()?;
+        Self::from_bit_string(bits)
+    }
+
+    /// Encode conformance to BER format
+    ///
+    /// According to ASN.1 specification:
+    /// ```asn1
+    /// Conformance ::= [APPLICATION 31] IMPLICIT BIT STRING
+    /// ```
+    ///
+    /// # Encoding Format
+    /// - Tag: APPLICATION 31 (0x5F + 31 = 0x7F)
+    /// - IMPLICIT: No additional tag needed
+    /// - BIT STRING: 24 bits (3 bytes, unused_bits = 0)
+    ///
+    /// # Returns
+    /// Returns BER-encoded bytes for use in InitiateRequest/Response PDUs.
+    ///
+    /// # Reference
+    /// DLMS Green Book 8.3 - COSEMpdu ASN.1 definition
+    pub fn encode_ber(&self) -> DlmsResult<Vec<u8>> {
+        use dlms_asn1::ber::{BerEncoder, BerTag, BerTagClass};
+        
+        let mut encoder = BerEncoder::new();
+        
+        // Get bit string bytes (24 bits = 3 bytes)
+        let bit_string_bytes = self.bits.to_bytes();
+        if bit_string_bytes.len() != 3 {
+            return Err(DlmsError::InvalidData(format!(
+                "Conformance must be exactly 24 bits (3 bytes), got {} bytes",
+                bit_string_bytes.len()
+            )));
+        }
+        
+        // Encode as [APPLICATION 31] IMPLICIT BIT STRING
+        // Tag: APPLICATION 31, Primitive (not constructed), BIT STRING
+        let tag = BerTag::new(BerTagClass::Application, false, 31);
+        
+        // BIT STRING encoding: unused_bits (1 byte) + bit_string_bytes
+        // For 24 bits (3 bytes), unused_bits = 0
+        let mut value = Vec::with_capacity(4);
+        value.push(0u8); // unused_bits = 0
+        value.extend_from_slice(&bit_string_bytes);
+        
+        encoder.encode_tlv(&tag, &value)?;
+        Ok(encoder.into_bytes())
+    }
+
+    /// Decode conformance from BER format
+    ///
+    /// According to ASN.1 specification:
+    /// ```asn1
+    /// Conformance ::= [APPLICATION 31] IMPLICIT BIT STRING
+    /// ```
+    ///
+    /// # Arguments
+    /// * `data` - BER-encoded bytes
+    ///
+    /// # Returns
+    /// Returns `Ok(Conformance)` if decoding succeeds, `Err` otherwise
+    ///
+    /// # Reference
+    /// DLMS Green Book 8.3 - COSEMpdu ASN.1 definition
+    pub fn decode_ber(data: &[u8]) -> DlmsResult<Self> {
+        use dlms_asn1::ber::{BerDecoder, BerTag, BerTagClass};
+        
+        let mut decoder = BerDecoder::new(data);
+        
+        // Decode TLV triplet
+        let (tag, value_bytes, _) = decoder.decode_tlv()?;
+        
+        // Verify tag: APPLICATION 31
+        if tag.class() != BerTagClass::Application || tag.number() != 31 {
+            return Err(DlmsError::InvalidData(format!(
+                "Expected APPLICATION 31 tag for Conformance, got {:?}",
+                tag
+            )));
+        }
+        
+        // Decode BIT STRING value: unused_bits (1 byte) + bit_string_bytes
+        if value_bytes.is_empty() {
+            return Err(DlmsError::InvalidData(
+                "Conformance BER encoding: value is empty".to_string(),
+            ));
+        }
+        
+        let unused_bits = value_bytes[0];
+        if unused_bits != 0 {
+            return Err(DlmsError::InvalidData(format!(
+                "Conformance must have unused_bits = 0 (24 bits), got {}",
+                unused_bits
+            )));
+        }
+        
+        // Read bit string bytes (should be 3 bytes for 24 bits)
+        if value_bytes.len() != 4 {
+            // 1 byte unused_bits + 3 bytes data
+            return Err(DlmsError::InvalidData(format!(
+                "Conformance must be exactly 24 bits (4 bytes total: 1 unused_bits + 3 data), got {} bytes",
+                value_bytes.len()
+            )));
+        }
+        
+        let bit_string_bytes = &value_bytes[1..4]; // Skip unused_bits byte
+        
+        // Create BitString from bytes
+        let bits = dlms_core::datatypes::BitString::from_bytes(bit_string_bytes.to_vec(), 24);
         Self::from_bit_string(bits)
     }
 
@@ -507,7 +622,10 @@ impl InitiateRequest {
         encoder.encode_u16(self.client_max_receive_pdu_size)?;
 
         // 2. proposed_conformance (BitString, 24 bits)
-        encoder.encode_bit_string(self.proposed_conformance.bits())?;
+        // According to ASN.1 specification, Conformance shall be encoded in BER
+        // In A-XDR, we encode the BER-encoded bytes as an OCTET STRING
+        let conformance_ber = self.proposed_conformance.encode_ber()?;
+        encoder.encode_octet_string(&conformance_ber)?;
 
         // 3. proposed_dlms_version_number (Unsigned8)
         encoder.encode_u8(self.proposed_dlms_version_number)?;
@@ -698,7 +816,10 @@ impl InitiateResponse {
         encoder.encode_u16(self.server_max_receive_pdu_size)?;
 
         // 3. negotiated_conformance (BitString, 24 bits)
-        encoder.encode_bit_string(self.negotiated_conformance.bits())?;
+        // According to ASN.1 specification, Conformance shall be encoded in BER
+        // In A-XDR, we encode the BER-encoded bytes as an OCTET STRING
+        let conformance_ber = self.negotiated_conformance.encode_ber()?;
+        encoder.encode_octet_string(&conformance_ber)?;
 
         // 4. negotiated_dlms_version_number (Unsigned8)
         encoder.encode_u8(self.negotiated_dlms_version_number)?;
@@ -740,9 +861,11 @@ impl InitiateResponse {
         // 2. negotiated_dlms_version_number (Unsigned8)
         let negotiated_dlms_version_number = decoder.decode_u8()?;
 
-        // 3. negotiated_conformance (BitString)
-        let conformance_bits = decoder.decode_bit_string()?;
-        let negotiated_conformance = Conformance::from_bit_string(conformance_bits)?;
+        // 3. negotiated_conformance (BitString, 24 bits)
+        // According to ASN.1 specification, Conformance shall be encoded in BER
+        // In A-XDR, we decode the BER-encoded bytes from an OCTET STRING
+        let conformance_ber_bytes = decoder.decode_octet_string()?;
+        let negotiated_conformance = Conformance::decode_ber(&conformance_ber_bytes)?;
 
         // 4. server_max_receive_pdu_size (Unsigned16)
         let server_max_receive_pdu_size = decoder.decode_u16()?;

@@ -508,11 +508,57 @@ impl MechanismName {
 /// Authentication Value is a CHOICE type that can be encoded in different forms.
 /// For DLMS/COSEM, we typically use OCTET STRING.
 ///
+/// # CHOICE Definition (from DLMS Green Book)
+/// AuthenticationValue ::= CHOICE
+/// {
+///     -- simple data types
+///     null-data [0],
+///     boolean [3],
+///     bit-string [4],
+///     double-long [5],
+///     double-long-unsigned [6],
+///     octet-string [9],
+///     visible-string [10],
+///     utf8-string [12],
+///     bcd [13],
+///     integer [15],
+///     long [16],
+///     unsigned [17],
+///     long-unsigned [18],
+///     long64 [20],
+///     long64-unsigned [21],
+///     enum [22],
+///     float32 [23],
+///     float64 [24],
+///     date-time [25],
+///     date [26],
+///     time [27],
+///     delta-integer [28],
+///     delta-long [29],
+///     delta-double-long [30],
+///     delta-unsigned [31],
+///     delta-long-unsigned [32],
+///     delta-double-long-unsigned [33],
+///     -- complex data types
+///     array [1],
+///     structure [2],
+///     compact-array [19]
+/// }
+///
+/// # Current Implementation
+/// Currently only supports OCTET STRING (tag [9]) which is the most common
+/// form used in DLMS/COSEM. Full CHOICE support is planned for future implementation.
+///
 /// # TODO
-/// - [ ] 实现完整的 AuthenticationValue CHOICE 支持
+/// - [ ] 实现完整的 AuthenticationValue CHOICE 支持（所有数据类型变体）
+/// - [ ] 保持向后兼容性（现有OCTET STRING支持必须继续工作）
+/// - [ ] 添加类型安全的枚举来表示所有CHOICE变体
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AuthenticationValue {
     /// Authentication value bytes
+    /// 
+    /// Note: Currently only supports OCTET STRING format.
+    /// Future implementation will support all CHOICE variants.
     value: Vec<u8>,
 }
 
