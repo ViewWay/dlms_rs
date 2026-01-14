@@ -44,7 +44,7 @@ pub mod service {
     pub mod set;
     pub mod action;
     pub mod event;
-    
+
     pub use get::GetService;
     pub use set::SetService;
     pub use action::ActionService;
@@ -52,6 +52,9 @@ pub mod service {
 }
 pub mod addressing;
 pub mod protocol_identification;
+pub mod association;
+pub mod encrypted;
+pub mod sn_pdu;
 
 pub use pdu::{
     InitiateRequest, InitiateResponse, Conformance, ConformanceEncodingMode, DLMS_VERSION_6, MAX_PDU_SIZE,
@@ -73,3 +76,18 @@ pub use pdu::action_result;
 
 // Re-export protocol identification
 pub use protocol_identification::{ProtocolIdentification, ProtocolInfo};
+
+// Re-export encrypted PDU types
+pub use encrypted::{
+    SecurityControl, KeyType, EncryptedPduType,
+    GlobalEncryptedPdu, DedicatedEncryptedPdu, EncryptedPdu,
+};
+
+// Re-export SN PDU types
+pub use sn_pdu::{
+    SnPduTag, ShortName,
+    ReadRequest, ReadResponse,
+    WriteRequest, WriteResponse,
+    UnconfirmedWriteRequest, InformationReportRequest,
+    SnPdu,
+};

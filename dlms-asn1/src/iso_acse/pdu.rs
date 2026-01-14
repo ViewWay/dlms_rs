@@ -402,6 +402,40 @@ impl AARQApdu {
 
         Ok(aarq)
     }
+
+    /// Set InitiateRequest in user_information field
+    ///
+    /// This is a convenience method for setting the InitiateRequest PDU
+    /// in the user_information field of the AARQ.
+    ///
+    /// # Arguments
+    /// * `initiate_request_bytes` - A-XDR encoded InitiateRequest PDU
+    pub fn set_initiate_request(&mut self, initiate_request_bytes: Vec<u8>) {
+        self.user_information = Some(AssociationInformation::from_initiate_request(initiate_request_bytes));
+    }
+
+    /// Get InitiateRequest bytes from user_information field
+    ///
+    /// Returns the InitiateRequest bytes if user_information is present,
+    /// or None if user_information is not set.
+    ///
+    /// # Returns
+    /// Returns `Some(&[u8])` with the InitiateRequest bytes, or `None` if not set.
+    #[must_use]
+    pub fn get_initiate_request(&self) -> Option<&[u8]> {
+        self.user_information.as_ref().map(AssociationInformation::as_bytes)
+    }
+
+    /// Check if user_information (InitiateRequest) is present
+    #[must_use]
+    pub fn has_initiate_request(&self) -> bool {
+        self.user_information.is_some()
+    }
+
+    /// Clear the user_information field
+    pub fn clear_user_information(&mut self) {
+        self.user_information = None;
+    }
 }
 
 /// AARE (Association Response) PDU
@@ -691,6 +725,40 @@ impl AAREApdu {
         }
 
         Ok(aare)
+    }
+
+    /// Set InitiateResponse in user_information field
+    ///
+    /// This is a convenience method for setting the InitiateResponse PDU
+    /// in the user_information field of the AARE.
+    ///
+    /// # Arguments
+    /// * `initiate_response_bytes` - A-XDR encoded InitiateResponse PDU
+    pub fn set_initiate_response(&mut self, initiate_response_bytes: Vec<u8>) {
+        self.user_information = Some(AssociationInformation::from_initiate_response(initiate_response_bytes));
+    }
+
+    /// Get InitiateResponse bytes from user_information field
+    ///
+    /// Returns the InitiateResponse bytes if user_information is present,
+    /// or None if user_information is not set.
+    ///
+    /// # Returns
+    /// Returns `Some(&[u8])` with the InitiateResponse bytes, or `None` if not set.
+    #[must_use]
+    pub fn get_initiate_response(&self) -> Option<&[u8]> {
+        self.user_information.as_ref().map(AssociationInformation::as_bytes)
+    }
+
+    /// Check if user_information (InitiateResponse) is present
+    #[must_use]
+    pub fn has_initiate_response(&self) -> bool {
+        self.user_information.is_some()
+    }
+
+    /// Clear the user_information field
+    pub fn clear_user_information(&mut self) {
+        self.user_information = None;
     }
 }
 

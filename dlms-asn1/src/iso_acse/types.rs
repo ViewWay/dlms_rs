@@ -223,6 +223,30 @@ impl AssociationInformation {
         &self.value
     }
 
+    /// Create AssociationInformation from InitiateRequest PDU bytes
+    ///
+    /// This is a convenience method for creating user information containing
+    /// an A-XDR encoded InitiateRequest for use in AARQ APDU.
+    ///
+    /// # Arguments
+    /// * `initiate_request_bytes` - A-XDR encoded InitiateRequest PDU
+    #[must_use]
+    pub fn from_initiate_request(initiate_request_bytes: Vec<u8>) -> Self {
+        Self { value: initiate_request_bytes }
+    }
+
+    /// Create AssociationInformation from InitiateResponse PDU bytes
+    ///
+    /// This is a convenience method for creating user information containing
+    /// an A-XDR encoded InitiateResponse for use in AARE APDU.
+    ///
+    /// # Arguments
+    /// * `initiate_response_bytes` - A-XDR encoded InitiateResponse PDU
+    #[must_use]
+    pub fn from_initiate_response(initiate_response_bytes: Vec<u8>) -> Self {
+        Self { value: initiate_response_bytes }
+    }
+
     /// Encode to BER format (with tag)
     ///
     /// # Encoding Format
@@ -241,6 +265,27 @@ impl AssociationInformation {
         let mut decoder = BerDecoder::new(data);
         let value = decoder.decode_octet_string()?;
         Ok(Self::new(value))
+    }
+
+    /// Get the user information as bytes for decoding as InitiateRequest/Response
+    ///
+    /// Returns the raw bytes that can be passed to InitiateRequest::decode() or
+    /// InitiateResponse::decode().
+    #[must_use]
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.value
+    }
+}
+
+impl From<Vec<u8>> for AssociationInformation {
+    fn from(value: Vec<u8>) -> Self {
+        Self { value }
+    }
+}
+
+impl AsRef<[u8]> for AssociationInformation {
+    fn as_ref(&self) -> &[u8] {
+        &self.value
     }
 }
 
