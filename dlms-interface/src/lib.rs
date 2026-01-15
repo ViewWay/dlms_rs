@@ -48,6 +48,10 @@
 //! - [ ] 属性定义宏
 //! - [ ] 方法定义宏
 
+use dlms_core::{DlmsError, DlmsResult, ObisCode, DataObject};
+use dlms_application::pdu::SelectiveAccessDescriptor;
+use async_trait::async_trait;
+
 pub mod attribute;
 pub mod method;
 pub mod macros;
@@ -58,3 +62,68 @@ pub mod register;
 pub use data::Data;
 pub use scaler_unit::{ScalerUnit, units};
 pub use register::Register;
+
+/// COSEM Object trait
+///
+/// This trait defines the interface that all COSEM objects must implement.
+/// It provides methods for getting and setting attributes, and invoking methods.
+///
+/// # Why This Trait?
+/// Using a trait allows:
+/// - **Polymorphism**: Same code works with different object types
+/// - **Extensibility**: Easy to add new object types
+/// - **Testability**: Easy to mock objects for testing
+#[async_trait]
+pub trait CosemObject: Send + Sync {
+    /// Get the class ID of this object
+    fn class_id(&self) -> u16;
+
+    /// Get the OBIS code (logical name) of this object
+    fn obis_code(&self) -> ObisCode;
+
+    /// Get an attribute value
+    ///
+    /// # Arguments
+    /// * `attribute_id` - Attribute ID to read (1-255)
+    /// * `selective_access` - Optional selective access descriptor
+    ///
+    /// # Returns
+    /// The attribute value as a `DataObject`, or error if attribute doesn't exist
+    async fn get_attribute(
+        &self,
+        attribute_id: u8,
+        selective_access: Option<&SelectiveAccessDescriptor>,
+    ) -> DlmsResult<DataObject>;
+
+    /// Set an attribute value
+    ///
+    /// # Arguments
+    /// * `attribute_id` - Attribute ID to write (1-255)
+    /// * `value` - Value to write
+    /// * `selective_access` - Optional selective access descriptor
+    ///
+    /// # Returns
+    /// `Ok(())` if successful, error otherwise
+    async fn set_attribute(
+        &self,
+        attribute_id: u8,
+        value: DataObject,
+        selective_access: Option<&SelectiveAccessDescriptor>,
+    ) -> DlmsResult<()>;
+
+    /// Invoke a method
+    ///
+    /// # Arguments
+    /// * `method_id` - Method ID to invoke (1-255)
+    /// * `parameters` - Method parameters (optional)
+    /// * `selective_access` - Optional selective access descriptor
+    ///
+    /// # Returns
+    /// The method return value as a `DataObject`, or error if method doesn't exist or fails
+    async fn invoke_method(
+        &self,
+        method_id: u8,
+        parameters: Option<DataObject>,
+        selective_access: Option<&SelectiveAccessDescriptor>,
+    ) -> DlmsResult<Option<DataObject>>;
+}

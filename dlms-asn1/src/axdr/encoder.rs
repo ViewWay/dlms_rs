@@ -28,103 +28,102 @@ impl AxdrEncoder {
     /// Encode a DataObject
     pub fn encode_data_object(&mut self, obj: &DataObject) -> DlmsResult<()> {
         use DataObject::*;
-        use AxdrTag::*;
 
         match obj {
-            Null => self.encode_tag(Null)?,
+            Null => self.encode_tag(AxdrTag::Null)?,
             Boolean(b) => {
-                self.encode_tag(Boolean)?;
+                self.encode_tag(AxdrTag::Boolean)?;
                 self.encode_bool(*b)?;
             }
             Integer8(i) => {
-                self.encode_tag(Integer8)?;
+                self.encode_tag(AxdrTag::Integer8)?;
                 self.encode_i8(*i)?;
             }
             Integer16(i) => {
-                self.encode_tag(Integer16)?;
+                self.encode_tag(AxdrTag::Integer16)?;
                 self.encode_i16(*i)?;
             }
             Integer32(i) => {
-                self.encode_tag(Integer32)?;
+                self.encode_tag(AxdrTag::Integer32)?;
                 self.encode_i32(*i)?;
             }
             Integer64(i) => {
-                self.encode_tag(Integer64)?;
+                self.encode_tag(AxdrTag::Integer64)?;
                 self.encode_i64(*i)?;
             }
             Unsigned8(u) => {
-                self.encode_tag(Unsigned8)?;
+                self.encode_tag(AxdrTag::Unsigned8)?;
                 self.encode_u8(*u)?;
             }
             Unsigned16(u) => {
-                self.encode_tag(Unsigned16)?;
+                self.encode_tag(AxdrTag::Unsigned16)?;
                 self.encode_u16(*u)?;
             }
             Unsigned32(u) => {
-                self.encode_tag(Unsigned32)?;
+                self.encode_tag(AxdrTag::Unsigned32)?;
                 self.encode_u32(*u)?;
             }
             Unsigned64(u) => {
-                self.encode_tag(Unsigned64)?;
+                self.encode_tag(AxdrTag::Unsigned64)?;
                 self.encode_u64(*u)?;
             }
             Float32(f) => {
-                self.encode_tag(Float32)?;
+                self.encode_tag(AxdrTag::Float32)?;
                 self.encode_f32(*f)?;
             }
             Float64(f) => {
-                self.encode_tag(Float64)?;
+                self.encode_tag(AxdrTag::Float64)?;
                 self.encode_f64(*f)?;
             }
             Enumerate(e) => {
-                self.encode_tag(Enumerate)?;
+                self.encode_tag(AxdrTag::Enumerate)?;
                 self.encode_u8(*e)?;
             }
             Bcd(b) => {
-                self.encode_tag(Bcd)?;
+                self.encode_tag(AxdrTag::Bcd)?;
                 self.encode_u8(*b)?;
             }
             OctetString(s) => {
-                self.encode_tag(OctetString)?;
+                self.encode_tag(AxdrTag::OctetString)?;
                 self.encode_octet_string(s)?;
             }
             VisibleString(s) => {
-                self.encode_tag(VisibleString)?;
+                self.encode_tag(AxdrTag::VisibleString)?;
                 self.encode_octet_string(s)?;
             }
             Utf8String(s) => {
-                self.encode_tag(Utf8String)?;
+                self.encode_tag(AxdrTag::Utf8String)?;
                 self.encode_octet_string(s)?;
             }
             BitString(bs) => {
-                self.encode_tag(BitString)?;
+                self.encode_tag(AxdrTag::BitString)?;
                 self.encode_bit_string(bs)?;
             }
             Array(arr) => {
-                self.encode_tag(Array)?;
+                self.encode_tag(AxdrTag::Array)?;
                 self.encode_array(arr)?;
             }
             Structure(s) => {
-                self.encode_tag(Structure)?;
+                self.encode_tag(AxdrTag::Structure)?;
                 self.encode_structure(s)?;
             }
             CompactArray(ca) => {
-                self.encode_tag(CompactArray)?;
+                self.encode_tag(AxdrTag::CompactArray)?;
                 // TODO: Implement compact array encoding
                 return Err(DlmsError::InvalidData(
                     "CompactArray encoding not yet implemented".to_string(),
                 ));
             }
             Date(d) => {
-                self.encode_tag(Date)?;
+                self.encode_tag(AxdrTag::Date)?;
                 self.encode_bytes(&d.encode())?;
             }
             Time(t) => {
-                self.encode_tag(Time)?;
+                self.encode_tag(AxdrTag::Time)?;
                 self.encode_bytes(&t.encode())?;
             }
             DateTime(dt) => {
-                self.encode_tag(DateTime)?;
+                self.encode_tag(AxdrTag::DateTime)?;
                 self.encode_bytes(&dt.encode())?;
             }
         }
@@ -310,6 +309,27 @@ impl AxdrEncoder {
     /// Clear the encoder buffer
     pub fn clear(&mut self) {
         self.buffer.clear();
+    }
+
+    /// Encode a DataObject (alias for encode_data_object)
+    ///
+    /// This is a convenience method that delegates to encode_data_object.
+    pub fn encode_data(&mut self, obj: &DataObject) -> DlmsResult<()> {
+        self.encode_data_object(obj)
+    }
+
+    /// Encode an Integer8 (signed 8-bit)
+    ///
+    /// This is a convenience method for encoding i8 values.
+    pub fn encode_integer8(&mut self, value: i8) -> DlmsResult<()> {
+        self.encode_i8(value)
+    }
+
+    /// Encode an Unsigned8 (unsigned 8-bit)
+    ///
+    /// This is a convenience method for encoding u8 values.
+    pub fn encode_unsigned8(&mut self, value: u8) -> DlmsResult<()> {
+        self.encode_u8(value)
     }
 }
 

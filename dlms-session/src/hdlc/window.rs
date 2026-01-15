@@ -221,9 +221,10 @@ impl SendWindow {
             let sequences_to_remove: Vec<u8> = self.unacked_frames
                 .iter()
                 .filter(|pending| {
-                    // In wrap-around case, acknowledge frames with seq < ack_sequence
-                    // These are from the previous cycle
-                    pending.sequence < ack_sequence
+                    // In wrap-around case, acknowledge frames from both cycles:
+                    // 1. Old cycle: seq >= oldest_seq (frames 5, 6, 7 in example)
+                    // 2. New cycle: seq < ack_sequence (frames 0, 1, 2 in example)
+                    pending.sequence >= oldest_seq || pending.sequence < ack_sequence
                 })
                 .map(|pending| pending.sequence)
                 .collect();

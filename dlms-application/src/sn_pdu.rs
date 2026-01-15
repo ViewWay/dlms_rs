@@ -164,7 +164,7 @@ impl ReadRequest {
             ));
         }
 
-        let invoke_id = InvokeIdAndPriority::new(data[1]);
+        let invoke_id = InvokeIdAndPriority::new(data[1] & 0x7F, (data[1] & 0x80) != 0)?;
         let short_name = ShortName(u16::from_be_bytes([data[2], data[3]]));
 
         Ok(Self {
@@ -220,6 +220,10 @@ impl ReadResponse {
                     "Data blocks not yet implemented for SN ReadResponse".to_string(),
                 ));
             }
+            GetDataResult::DataAccessResult(code) => {
+                // Encode error code as single byte
+                encoder.encode_u8(*code)?;
+            }
         }
 
         Ok(encoder.into_bytes())
@@ -245,7 +249,7 @@ impl ReadResponse {
             ));
         }
 
-        let invoke_id = InvokeIdAndPriority::new(data[1]);
+        let invoke_id = InvokeIdAndPriority::new(data[1] & 0x7F, (data[1] & 0x80) != 0)?;
 
         // Decode result data
         let mut decoder = AxdrDecoder::new(&data[2..]);
@@ -335,7 +339,7 @@ impl WriteRequest {
             ));
         }
 
-        let invoke_id = InvokeIdAndPriority::new(data[1]);
+        let invoke_id = InvokeIdAndPriority::new(data[1] & 0x7F, (data[1] & 0x80) != 0)?;
         let short_name = ShortName(u16::from_be_bytes([data[2], data[3]]));
 
         // Decode data (remaining bytes)
@@ -412,7 +416,7 @@ impl WriteResponse {
             ));
         }
 
-        let invoke_id = InvokeIdAndPriority::new(data[1]);
+        let invoke_id = InvokeIdAndPriority::new(data[1] & 0x7F, (data[1] & 0x80) != 0)?;
         let result = SetDataResult::from_u8(data[2])?;
 
         Ok(Self {

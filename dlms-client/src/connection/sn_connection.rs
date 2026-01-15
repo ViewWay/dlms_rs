@@ -190,7 +190,7 @@ impl Connection for SnConnection {
     async fn open(&mut self) -> DlmsResult<()> {
         if !matches!(self.state, ConnectionState::Closed) {
             return Err(DlmsError::Connection(std::io::Error::new(
-                std::io::ErrorKind::AlreadyConnected,
+                std::io::ErrorKind::InvalidInput,
                 "Connection is already open",
             )));
         }
@@ -337,7 +337,7 @@ impl Connection for SnConnection {
     ///
     /// # Errors
     /// Returns error if the connection is not open, if the request fails, or if the response indicates an error
-    pub async fn get_attribute_by_base_name(
+    async fn get_attribute_by_base_name(
         &mut self,
         base_name: u16,
         class_id: u16,
@@ -379,7 +379,7 @@ impl Connection for SnConnection {
         let response = GetResponse::decode(&response_bytes)?;
 
         // Process response using GetService
-        self.get_service.process_response(&response)
+        GetService::process_response(&response)
     }
 
     async fn set_attribute(
@@ -408,7 +408,7 @@ impl Connection for SnConnection {
     ///
     /// # Errors
     /// Returns error if the connection is not open, if the request fails, or if the response indicates an error
-    pub async fn set_attribute_by_base_name(
+    async fn set_attribute_by_base_name(
         &mut self,
         base_name: u16,
         class_id: u16,
@@ -452,7 +452,7 @@ impl Connection for SnConnection {
         let response = SetResponse::decode(&response_bytes)?;
 
         // Process response using SetService
-        self.set_service.process_response(&response)?;
+        SetService::process_response(&response)?;
         Ok(())
     }
 
@@ -482,7 +482,7 @@ impl Connection for SnConnection {
     ///
     /// # Errors
     /// Returns error if the connection is not open, if the request fails, or if the response indicates an error
-    pub async fn invoke_method_by_base_name(
+    async fn invoke_method_by_base_name(
         &mut self,
         base_name: u16,
         class_id: u16,
@@ -525,7 +525,7 @@ impl Connection for SnConnection {
         let response = ActionResponse::decode(&response_bytes)?;
 
         // Process response using ActionService
-        self.action_service.process_response(&response)
+        ActionService::process_response(&response)
     }
 
     async fn send_request(

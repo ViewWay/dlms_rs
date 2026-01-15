@@ -154,7 +154,7 @@ impl EventNotificationService {
     ///
     /// # Errors
     /// Returns error if the handler returns an error
-    pub fn process_notification(&self, notification: &EventNotification) -> DlmsResult<&EventNotification> {
+    pub fn process_notification<'a>(&'a self, notification: &'a EventNotification) -> DlmsResult<&'a EventNotification> {
         // Check filter if set
         if let Some(ref filter_obis) = self.filter_obis {
             match &notification.cosem_attribute_descriptor {

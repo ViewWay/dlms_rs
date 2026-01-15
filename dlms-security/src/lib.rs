@@ -50,7 +50,7 @@ pub mod xdlms_frame;
 
 pub use error::{DlmsError, DlmsResult};
 pub use suite::{
-    SecuritySuite, SecuritySuiteBuilder, SecurityPolicy, EncryptionMechanism, AuthenticationMechanism,
+    SecuritySuite, SecuritySuiteBuilder, SecurityPolicy, EncryptionMechanism,
 };
 pub use encryption::{AesGcmEncryption, SecurityControl};
 pub use authentication::{GmacAuth, LowAuth, Hls5GmacAuth};

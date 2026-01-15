@@ -51,9 +51,9 @@ pub struct ConnectionBuilder {
     /// Transport type and settings
     transport_type: TransportType,
     /// Local HDLC address (for HDLC sessions)
-    local_hdlc_address: Option<HdlcAddress>,
+    local_hdlc_address: Option<u16>,
     /// Remote HDLC address (for HDLC sessions)
-    remote_hdlc_address: Option<HdlcAddress>,
+    remote_hdlc_address: Option<u16>,
     /// Client ID (for Wrapper sessions)
     client_id: Option<u16>,
     /// Logical device ID (for Wrapper sessions)
@@ -160,8 +160,8 @@ impl ConnectionBuilder {
     /// HDLC addressing is used for Serial transport and some TCP implementations.
     /// Typical values: local=0x01 (client), remote=0x10 (server).
     pub fn hdlc_addresses(mut self, local: u8, remote: u8) -> Self {
-        self.local_hdlc_address = Some(HdlcAddress::new(local));
-        self.remote_hdlc_address = Some(HdlcAddress::new(remote));
+        self.local_hdlc_address = Some(local as u16);
+        self.remote_hdlc_address = Some(remote as u16);
         self
     }
 
@@ -285,10 +285,13 @@ impl ConnectionBuilder {
         // Create connection configuration
         // IMPORTANT: The transport field must be set here, otherwise LnConnection::open()
         // will fail with "Transport configuration is required" error.
+        let local_address = self.local_hdlc_address.map(|a| HdlcAddress::new(a)).transpose()?;
+        let remote_address = self.remote_hdlc_address.map(|a| HdlcAddress::new(a)).transpose()?;
+
         let config = LnConnectionConfig {
             transport: Some(transport), // Transport config is required and validated above
-            local_address: self.local_hdlc_address,
-            remote_address: self.remote_hdlc_address,
+            local_address,
+            remote_address,
             client_id: self.client_id,
             logical_device_id: self.logical_device_id,
             security_suite: self.security_suite,
@@ -339,10 +342,13 @@ impl ConnectionBuilder {
         // Create connection configuration
         // IMPORTANT: The transport field must be set here, otherwise SnConnection::open()
         // will fail with "Transport configuration is required" error.
+        let local_address = self.local_hdlc_address.map(|a| HdlcAddress::new(a)).transpose()?;
+        let remote_address = self.remote_hdlc_address.map(|a| HdlcAddress::new(a)).transpose()?;
+
         let config = SnConnectionConfig {
             transport: Some(transport), // Transport config is required and validated above
-            local_address: self.local_hdlc_address,
-            remote_address: self.remote_hdlc_address,
+            local_address,
+            remote_address,
             client_id: self.client_id,
             logical_device_id: self.logical_device_id,
             security_suite: self.security_suite,

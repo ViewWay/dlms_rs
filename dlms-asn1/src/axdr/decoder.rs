@@ -312,6 +312,27 @@ impl<'a> AxdrDecoder<'a> {
     pub fn remaining(&self) -> usize {
         self.buffer.len() - self.position
     }
+
+    /// Decode a DataObject (alias for decode_data_object)
+    ///
+    /// This is a convenience method that delegates to decode_data_object.
+    pub fn decode_data(&mut self) -> DlmsResult<DataObject> {
+        self.decode_data_object()
+    }
+
+    /// Decode an Integer8 (signed 8-bit)
+    ///
+    /// This is a convenience method for decoding i8 values.
+    pub fn decode_integer8(&mut self) -> DlmsResult<i8> {
+        self.decode_i8()
+    }
+
+    /// Decode an Unsigned8 (unsigned 8-bit)
+    ///
+    /// This is a convenience method for decoding u8 values.
+    pub fn decode_unsigned8(&mut self) -> DlmsResult<u8> {
+        self.decode_u8()
+    }
 }
 
 #[cfg(test)]

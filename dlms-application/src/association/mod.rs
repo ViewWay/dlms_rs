@@ -53,7 +53,7 @@ pub use events::{
 pub use events::channel_listener::ChannelEventListener;
 
 use std::sync::Arc;
-use events::EventsEmitter;
+use std::fmt;
 
 // Re-export for convenience in this module
 use crate::pdu::{InitiateRequest, InitiateResponse, Conformance};
@@ -89,6 +89,14 @@ impl EventsEmitter {
 impl Default for EventsEmitter {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl fmt::Debug for EventsEmitter {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("EventsEmitter")
+            .field("listener_count", &self.listeners.len())
+            .finish()
     }
 }
 

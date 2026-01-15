@@ -71,11 +71,18 @@ impl HdlcDispatcher {
 
     /// Process incoming frames
     pub async fn process_frames(&mut self) -> DlmsResult<()> {
+        // Collect all pending frames first to avoid borrow checker issues
+        let mut frames = Vec::new();
         if let Some(ref mut receiver) = self.frame_receiver {
             while let Ok(frame) = receiver.try_recv() {
-                if self.should_accept_frame(&frame) {
-                    self.message_queue.enqueue(frame);
-                }
+                frames.push(frame);
+            }
+        }
+
+        // Now process frames without holding the receiver borrow
+        for frame in frames {
+            if self.should_accept_frame(&frame) {
+                self.message_queue.enqueue(frame);
             }
         }
         Ok(())

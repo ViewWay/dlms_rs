@@ -1,4 +1,5 @@
 [workspace]
+resolver = "3"
 members = [
     "dlms-core",
     "dlms-asn1",
@@ -25,7 +26,7 @@ tokio = { version = "1.49.0", features = ["full"] }
 tokio-serial = { version = "5.4.5", features = ["libudev"] }
 
 # ASN.1 处理
-rasn = { version = "0.28.2", features = ["derive"] }
+rasn = "0.28.2"
 
 # 加密和安全
 ring = "0.17.14"

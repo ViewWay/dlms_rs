@@ -263,8 +263,11 @@ mod tests {
 
     #[test]
     fn test_cosem_date_invalid() {
-        assert!(CosemDate::new(0x10000, 1, 1).is_err());
-        assert!(CosemDate::new(2024, 13, 1).is_err());
-        assert!(CosemDate::new(2024, 1, 32).is_err());
+        // Note: year is u16, so values > 0xFFFF are truncated by the type system
+        // We only test valid range violations that can actually occur
+        assert!(CosemDate::new(2024, 13, 1).is_err());  // Invalid month
+        assert!(CosemDate::new(2024, 0, 1).is_err());   // Invalid month (zero)
+        assert!(CosemDate::new(2024, 1, 32).is_err()); // Invalid day
+        assert!(CosemDate::new(2024, 1, 0).is_err());  // Invalid day (zero)
     }
 }

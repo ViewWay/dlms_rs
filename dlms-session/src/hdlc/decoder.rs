@@ -66,7 +66,7 @@ impl HdlcMessageDecoder {
 
         // Read frame format (2 bytes)
         let mut frame_format = [0u8; 2];
-        Self::read_exact(stream, &mut frame_format).await?;
+        stream.read_exact(&mut frame_format).await?;
 
         let frame_format_short = u16::from_be_bytes(frame_format);
         let length = (frame_format_short & HDLC_LENGTH_MASK) as usize;
@@ -85,7 +85,7 @@ impl HdlcMessageDecoder {
         
         let remaining = length - 2;
         if remaining > 0 {
-            Self::read_exact(stream, &mut data[2..]).await?;
+            stream.read_exact(&mut data[2..]).await?;
         }
 
         Ok(data)
@@ -101,9 +101,8 @@ impl HdlcMessageDecoder {
             Ok(())
         }
     }
-}
 
-    // Helper function for reading exact number of bytes
+    /// Helper function for reading exact number of bytes
     async fn read_exact<S: StreamAccessor>(stream: &mut S, buf: &mut [u8]) -> DlmsResult<()> {
         let mut pos = 0;
         while pos < buf.len() {
@@ -118,3 +117,4 @@ impl HdlcMessageDecoder {
         }
         Ok(())
     }
+}

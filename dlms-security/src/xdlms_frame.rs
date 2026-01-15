@@ -342,7 +342,7 @@ impl EncryptedFrameParser {
             }
 
             // Decrypt
-            let plaintext = cipher.decrypt(ciphertext, nonce, &aad)?;
+            let plaintext = cipher.decrypt(ciphertext, &nonce[..], &aad[..])?;
 
             Ok(plaintext)
         } else {

@@ -20,5 +20,5 @@ dlms-transport = { path = "../dlms-transport" }
 dlms-session = { path = "../dlms-session" }
 dlms-security = { path = "../dlms-security" }
 dlms-application = { path = "../dlms-application" }
-dlms-interface = { path = "../dlms-interface" }
+dlms-interface = { path = "../dlms-interface", public = true }
 anyhow = { workspace = true }

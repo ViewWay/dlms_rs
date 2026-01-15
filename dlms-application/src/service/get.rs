@@ -155,6 +155,11 @@ impl GetService {
             GetResponse::Normal(normal) => {
                 match &normal.result {
                     GetDataResult::Data(data) => Ok(data.clone()),
+                    GetDataResult::DataBlock(_) => {
+                        Err(DlmsError::InvalidData(
+                            "DataBlock result not supported in process_response. Use process_response_with_blocks instead.".to_string(),
+                        ))
+                    }
                     GetDataResult::DataAccessResult(code) => {
                         let description = normal.result.error_description();
                         Err(DlmsError::InvalidData(format!(

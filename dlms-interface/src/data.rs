@@ -29,7 +29,7 @@
 
 use dlms_core::{DlmsError, DlmsResult, ObisCode, DataObject};
 use dlms_application::pdu::SelectiveAccessDescriptor;
-use dlms_server::CosemObject;
+use crate::CosemObject;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -144,6 +144,7 @@ impl CosemObject for Data {
         &self,
         method_id: u8,
         _parameters: Option<DataObject>,
+        _selective_access: Option<&SelectiveAccessDescriptor>,
     ) -> DlmsResult<Option<DataObject>> {
         Err(DlmsError::InvalidData(format!(
             "Data interface class has no method {}",

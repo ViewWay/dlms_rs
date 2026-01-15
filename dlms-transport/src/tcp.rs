@@ -64,20 +64,22 @@ impl TransportLayer for TcpTransport {
     async fn open(&mut self) -> DlmsResult<()> {
         if !self.closed {
             return Err(DlmsError::Connection(std::io::Error::new(
-                std::io::ErrorKind::AlreadyConnected,
+                std::io::ErrorKind::InvalidInput,
                 "Connection has already been opened",
             )));
         }
 
-        let stream = TcpStream::connect(self.settings.address)
-            .await
-            .map_err(|e| DlmsError::Connection(e))?;
-
-        // Set timeout if specified
-        if let Some(timeout) = self.settings.timeout {
-            // Note: tokio TcpStream doesn't have a direct timeout setter,
-            // timeout is typically handled at the read/write level
-        }
+        // Apply timeout to connection establishment if specified
+        let stream = if let Some(timeout) = self.settings.timeout {
+            tokio::time::timeout(timeout, TcpStream::connect(self.settings.address))
+                .await
+                .map_err(|_| DlmsError::Timeout)?
+                .map_err(|e| DlmsError::Connection(e))?
+        } else {
+            TcpStream::connect(self.settings.address)
+                .await
+                .map_err(|e| DlmsError::Connection(e))?
+        };
 
         self.stream = Some(stream);
         self.closed = false;

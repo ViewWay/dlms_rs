@@ -67,35 +67,35 @@ impl UdpTransport {
     }
 
     async fn read_next_packet(&self) -> DlmsResult<()> {
-        let socket = self.socket.as_ref().ok_or_else(|| {
-            DlmsError::Connection(std::io::Error::new(
-                std::io::ErrorKind::NotConnected,
-                "UDP socket not connected",
-            ))
-        })?;
+        loop {
+            let socket = self.socket.as_ref().ok_or_else(|| {
+                DlmsError::Connection(std::io::Error::new(
+                    std::io::ErrorKind::NotConnected,
+                    "UDP socket not connected",
+                ))
+            })?;
 
-        let mut buf = vec![0u8; MAX_UDP_PAYLOAD_SIZE];
-        
-        let (len, addr) = if let Some(timeout) = self.settings.timeout {
-            tokio::time::timeout(timeout, socket.recv_from(&mut buf)).await
-                .map_err(|_| DlmsError::Timeout)?
-                .map_err(|e| DlmsError::Connection(e))?
-        } else {
-            socket.recv_from(&mut buf).await
-                .map_err(|e| DlmsError::Connection(e))?
-        };
+            let mut buf = vec![0u8; MAX_UDP_PAYLOAD_SIZE];
 
-        // Verify the packet is from the expected address
-        if addr != self.settings.remote_address {
-            // Ignore packets from other addresses
-            return self.read_next_packet().await;
+            let (len, addr) = if let Some(timeout) = self.settings.timeout {
+                tokio::time::timeout(timeout, socket.recv_from(&mut buf)).await
+                    .map_err(|_| DlmsError::Timeout)?
+                    .map_err(|e| DlmsError::Connection(e))?
+            } else {
+                socket.recv_from(&mut buf).await
+                    .map_err(|e| DlmsError::Connection(e))?
+            };
+
+            // Verify the packet is from the expected address
+            if addr == self.settings.remote_address {
+                let mut buffer = self.read_buffer.lock().await;
+                *buffer = buf[..len].to_vec();
+                let mut position = self.read_position.lock().await;
+                *position = 0;
+                return Ok(());
+            }
+            // Otherwise, continue loop to wait for next packet
         }
-
-        let mut buffer = self.read_buffer.lock().await;
-        *buffer = buf[..len].to_vec();
-        let mut position = self.read_position.lock().await;
-        *position = 0;
-        Ok(())
     }
 }
 
@@ -104,7 +104,7 @@ impl TransportLayer for UdpTransport {
     async fn open(&mut self) -> DlmsResult<()> {
         if !self.closed {
             return Err(DlmsError::Connection(std::io::Error::new(
-                std::io::ErrorKind::AlreadyConnected,
+                std::io::ErrorKind::InvalidInput,
                 "Connection has already been opened",
             )));
         }

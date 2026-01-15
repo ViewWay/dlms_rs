@@ -6,7 +6,7 @@ use crate::datatypes::cosem_time::CosemTime;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
-const DEVIATION_NOT_SPECIFIED: i16 = 0x8000;
+const DEVIATION_NOT_SPECIFIED: i16 = -32768;
 
 /// Clock status flags for COSEM DateTime
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -202,7 +202,7 @@ impl CosemDateFormat for CosemDateTime {
         let mut result = Vec::with_capacity(Self::LENGTH);
         result.extend_from_slice(&self.date.encode());
         result.extend_from_slice(&self.time.encode());
-        result.push(((self.deviation & 0xff00) >> 8) as u8);
+        result.push(((self.deviation as u16 & 0xff00u16) >> 8) as u8);
         result.push((self.deviation & 0xff) as u8);
         result.push(self.clock_status);
         result

@@ -44,9 +44,12 @@
 //!   lazy validation for better performance in hot paths.
 
 use dlms_core::{DlmsError, DlmsResult, ObisCode};
-use dlms_core::datatypes::{BitString, DataObject};
-use dlms_asn1::{AxdrDecoder, AxdrEncoder};
+use dlms_core::datatypes::{BitString, CosemDateFormat};
+use dlms_asn1::{AxdrDecoder, AxdrEncoder, LengthEncoding};
 use crate::addressing::{LogicalNameReference, ShortNameReference, AccessSelector};
+
+// Re-export DataObject for convenience
+pub use dlms_core::datatypes::DataObject;
 
 /// DLMS protocol version number
 ///
@@ -131,7 +134,7 @@ impl Conformance {
         // Conformance is a 24-bit bitstring (3 bytes)
         let bytes = vec![0u8; 3];
         Self {
-            bits: BitString::from_bytes(bytes, 24),
+            bits: BitString::from_bytes(bytes, 24).expect("Invalid conformance bytes"),
         }
     }
 
@@ -288,7 +291,7 @@ impl Conformance {
         let bit_string_bytes = &value_bytes[1..4]; // Skip unused_bits byte
 
         // Create BitString from bytes
-        let bits = dlms_core::datatypes::BitString::from_bytes(bit_string_bytes.to_vec(), 24);
+        let bits = dlms_core::datatypes::BitString::from_bytes(bit_string_bytes.to_vec(), 24)?;
         Self::from_bit_string(bits)
     }
 
@@ -355,7 +358,7 @@ impl Conformance {
         if bit >= 24 {
             return None;
         }
-        Some(self.bits.get_bit(bit))
+        self.bits.get_bit(bit).ok()
     }
 
     /// Set block read capability (bit 3)
@@ -865,6 +868,11 @@ impl InitiateRequest {
             client_max_receive_pdu_size,
         })
     }
+
+    /// Get the maximum PDU size
+    pub fn max_pdu_size(&self) -> u16 {
+        self.client_max_receive_pdu_size
+    }
 }
 
 
@@ -1187,6 +1195,19 @@ impl InvokeIdAndPriority {
         self.high_priority
     }
 
+    /// Get the raw value (invoke_id with priority bit)
+    ///
+    /// Returns the encoded byte value where:
+    /// - Bit 7: High priority flag (1 = high, 0 = normal)
+    /// - Bits 0-6: Invoke ID
+    pub fn value(&self) -> u8 {
+        let mut byte = self.invoke_id;
+        if self.high_priority {
+            byte |= 0x80; // Set bit 7
+        }
+        byte
+    }
+
     /// Encode to A-XDR format (8-bit BitString)
     ///
     /// Encoding format:
@@ -1199,7 +1220,7 @@ impl InvokeIdAndPriority {
             byte |= 0x80; // Set bit 7
         }
         // Encode as 8-bit BitString
-        let bits = BitString::from_bytes(vec![byte], 8);
+        let bits = BitString::from_bytes(vec![byte], 8)?;
         encoder.encode_bit_string(&bits)?;
         Ok(encoder.into_bytes())
     }
@@ -1312,7 +1333,7 @@ impl CosemAttributeDescriptor {
         let mut encoder = AxdrEncoder::new();
 
         match self {
-            CosemAttributeDescriptor::LogicalName(ref ln_ref) => {
+            CosemAttributeDescriptor::LogicalName(ln_ref) => {
                 // Encode in reverse order
                 // 1. attribute_id (Integer8)
                 encoder.encode_i8(ln_ref.id as i8)?;
@@ -1517,8 +1538,49 @@ impl SelectiveAccessDescriptor {
 pub enum GetDataResult {
     /// Successfully retrieved data
     Data(DataObject),
+    /// Data block (for block transfer)
+    DataBlock(DataBlockResult),
     /// Data access error code
     DataAccessResult(u8),
+}
+
+/// Data block result for block transfer
+///
+/// Used in Get-Response-WithDataBlock for segmented data transfer.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DataBlockResult {
+    /// The block number
+    pub block_number: u32,
+    /// Whether this is the last block
+    pub last_block: bool,
+    /// The raw data of this block
+    pub data: Vec<u8>,
+}
+
+impl DataBlockResult {
+    /// Create a new DataBlockResult
+    pub fn new(block_number: u32, last_block: bool, data: Vec<u8>) -> Self {
+        Self {
+            block_number,
+            last_block,
+            data,
+        }
+    }
+
+    /// Get the block number
+    pub fn block_number(&self) -> u32 {
+        self.block_number
+    }
+
+    /// Check if this is the last block
+    pub fn is_last_block(&self) -> bool {
+        self.last_block
+    }
+
+    /// Get the data
+    pub fn data(&self) -> &[u8] {
+        &self.data
+    }
 }
 
 /// Data Access Result error codes
@@ -1562,6 +1624,41 @@ pub mod data_access_result {
     pub const NOT_SET: u8 = 255;
 }
 
+/// Action Result error codes
+///
+/// Based on DLMS/COSEM Green Book standard.
+/// These constants provide type-safe error code values for ActionResult.
+pub mod action_result {
+    /// Success (should use Data variant instead)
+    pub const SUCCESS: u8 = 0;
+    /// Hardware fault
+    pub const HARDWARE_FAULT: u8 = 1;
+    /// Temporary failure
+    pub const TEMPORARY_FAILURE: u8 = 2;
+    /// Read-write denied
+    pub const READ_WRITE_DENIED: u8 = 3;
+    /// Object undefined
+    pub const OBJECT_UNDEFINED: u8 = 4;
+    /// Object class inconsistent
+    pub const OBJECT_CLASS_INCONSISTENT: u8 = 9;
+    /// Object unavailable
+    pub const OBJECT_UNAVAILABLE: u8 = 11;
+    /// Type unmatched
+    pub const TYPE_UNMATCHED: u8 = 12;
+    /// Scope of access violated
+    pub const SCOPE_OF_ACCESS_VIOLATED: u8 = 13;
+    /// Data block unavailable
+    pub const DATA_BLOCK_UNAVAILABLE: u8 = 14;
+    /// Long ACTION aborted
+    pub const LONG_ACTION_ABORTED: u8 = 15;
+    /// No long ACTION in progress
+    pub const NO_LONG_ACTION_IN_PROGRESS: u8 = 16;
+    /// Other reason
+    pub const OTHER_REASON: u8 = 250;
+    /// Not set
+    pub const NOT_SET: u8 = 255;
+}
+
 impl GetDataResult {
     /// Create a new GetDataResult with data
     pub fn new_data(data: DataObject) -> Self {
@@ -1589,7 +1686,7 @@ impl GetDataResult {
 
     /// Check if this is a success result
     pub fn is_success(&self) -> bool {
-        matches!(self, Self::Data(_))
+        matches!(self, Self::Data(_) | Self::DataBlock(_))
     }
 
     /// Get the error code if this is an error result
@@ -1608,6 +1705,14 @@ impl GetDataResult {
         }
     }
 
+    /// Get the data block if this is a block result
+    pub fn data_block(&self) -> Option<&DataBlockResult> {
+        match self {
+            Self::DataBlock(block) => Some(block),
+            _ => None,
+        }
+    }
+
     /// Get a human-readable description of the error code
     ///
     /// # Returns
@@ -1615,6 +1720,7 @@ impl GetDataResult {
     pub fn error_description(&self) -> &'static str {
         match self {
             Self::Data(_) => "Success",
+            Self::DataBlock(_) => "Success (Data Block)",
             Self::DataAccessResult(code) => match *code {
                 data_access_result::SUCCESS => "Success",
                 data_access_result::HARDWARE_FAULT => "Hardware fault",
@@ -1663,6 +1769,16 @@ impl GetDataResult {
                 // Encode value after tag
                 encoder.encode_data_object(data)?;
             }
+            GetDataResult::DataBlock(block) => {
+                // Encode choice tag (2 = DataBlock)
+                encoder.encode_u8(2)?;
+                // Encode block number (Unsigned32)
+                encoder.encode_u32(block.block_number)?;
+                // Encode last block flag (Boolean)
+                encoder.encode_bool(block.last_block)?;
+                // Encode raw data (OctetString)
+                encoder.encode_octet_string(&block.data)?;
+            }
             GetDataResult::DataAccessResult(code) => {
                 // Encode choice tag first (1 = DataAccessResult)
                 encoder.encode_u8(1)?;
@@ -1696,8 +1812,15 @@ impl GetDataResult {
                 let code = decoder.decode_u8()?;
                 Ok(Self::DataAccessResult(code))
             }
+            2 => {
+                // DataBlock variant: decode block number, last block flag, and data
+                let block_number = decoder.decode_u32()?;
+                let last_block = decoder.decode_bool()?;
+                let data = decoder.decode_octet_string()?;
+                Ok(Self::DataBlock(DataBlockResult::new(block_number, last_block, data)))
+            }
             _ => Err(DlmsError::InvalidData(format!(
-                "Invalid GetDataResult choice tag: {} (expected 0 or 1)",
+                "Invalid GetDataResult choice tag: {} (expected 0, 1, or 2)",
                 choice_tag
             ))),
         }
@@ -1837,6 +1960,21 @@ impl GetRequestNormal {
             cosem_attribute_descriptor,
             access_selection,
         })
+    }
+
+    /// Get the invoke ID and priority
+    pub fn invoke_id_and_priority(&self) -> &InvokeIdAndPriority {
+        &self.invoke_id_and_priority
+    }
+
+    /// Get the COSEM attribute descriptor
+    pub fn cosem_attribute_descriptor(&self) -> &CosemAttributeDescriptor {
+        &self.cosem_attribute_descriptor
+    }
+
+    /// Get the selective access descriptor
+    pub fn selective_access(&self) -> Option<&SelectiveAccessDescriptor> {
+        self.access_selection.as_ref()
     }
 }
 
@@ -2033,7 +2171,7 @@ impl GetRequest {
                 }
 
                 // Validate: if access_selection_list exists, it must have the same length
-                if let Some(ref access_list) = access_selection_list {
+                if let Some(access_list) = access_selection_list {
                     if access_list.len() != attribute_descriptor_list.len() {
                         return Err(DlmsError::InvalidData(format!(
                             "GetRequest::WithList: access_selection_list length ({}) must match attribute_descriptor_list length ({})",
@@ -2045,7 +2183,7 @@ impl GetRequest {
 
                 // Encode in reverse order (A-XDR SEQUENCE convention)
                 // 1. access_selection_list (optional array of optional SelectiveAccessDescriptor)
-                if let Some(ref access_list) = access_selection_list {
+                if let Some(access_list) = access_selection_list {
                     // Encode usage flag: true (array exists)
                     encoder.encode_bool(true)?;
                     
@@ -2061,7 +2199,7 @@ impl GetRequest {
                 // Each element is optional, so encode flag then value
                 for access_opt in access_list.iter() {
                     encoder.encode_bool(access_opt.is_some())?;
-                    if let Some(ref access_desc) = access_opt {
+                    if let Some(access_desc) = access_opt {
                         let access_bytes = access_desc.encode()?;
                         encoder.encode_octet_string(&access_bytes)?;
                     }
@@ -2681,7 +2819,7 @@ mod tests {
         let desc = CosemAttributeDescriptor::new_logical_name(1, obis, 2).unwrap();
         
         match desc {
-            CosemAttributeDescriptor::LogicalName(ref ln_ref) => {
+            CosemAttributeDescriptor::LogicalName(ln_ref) => {
                 assert_eq!(ln_ref.class_id, 1);
                 assert_eq!(ln_ref.id, 2);
             }
@@ -3132,6 +3270,28 @@ impl SetDataResult {
             ))),
         }
     }
+
+    /// Create a SetDataResult from a single byte
+    ///
+    /// This is a convenience method for decoding simple status codes.
+    /// - 0 = Success
+    /// - 1-255 = DataAccessResult (error code)
+    pub fn from_u8(byte: u8) -> DlmsResult<Self> {
+        Ok(match byte {
+            0 => Self::Success,
+            code => Self::DataAccessResult(code),
+        })
+    }
+
+    /// Convert to u8
+    ///
+    /// Returns 0 for success, or the error code for errors.
+    pub fn as_u8(&self) -> u8 {
+        match self {
+            Self::Success => 0,
+            Self::DataAccessResult(code) => *code,
+        }
+    }
 }
 
 /// COSEM Method Descriptor
@@ -3218,7 +3378,7 @@ impl CosemMethodDescriptor {
         let mut encoder = AxdrEncoder::new();
 
         match self {
-            CosemMethodDescriptor::LogicalName(ref ln_ref) => {
+            CosemMethodDescriptor::LogicalName(ln_ref) => {
                 // Encode in reverse order
                 // 1. method_id (Integer8)
                 encoder.encode_i8(ln_ref.id as i8)?;
@@ -3413,6 +3573,26 @@ impl SetRequestNormal {
             access_selection,
             value,
         })
+    }
+
+    /// Get the invoke ID and priority
+    pub fn invoke_id_and_priority(&self) -> &InvokeIdAndPriority {
+        &self.invoke_id_and_priority
+    }
+
+    /// Get the COSEM attribute descriptor
+    pub fn cosem_attribute_descriptor(&self) -> &CosemAttributeDescriptor {
+        &self.cosem_attribute_descriptor
+    }
+
+    /// Get the selective access descriptor
+    pub fn selective_access(&self) -> Option<&SelectiveAccessDescriptor> {
+        self.access_selection.as_ref()
+    }
+
+    /// Get the value to write
+    pub fn value(&self) -> &DataObject {
+        &self.value
     }
 }
 
@@ -3807,6 +3987,16 @@ impl ActionResult {
             ))),
         }
     }
+
+    /// Create a new ActionResult with return parameters (alias for new_success_with_data)
+    pub fn new_return_parameters(value: DataObject) -> Self {
+        Self::SuccessWithData(value)
+    }
+
+    /// Create a new ActionResult with data access result (alias for new_error)
+    pub fn new_data_access_result(code: u8) -> Self {
+        Self::DataAccessResult(code)
+    }
 }
 
 /// Action Request Normal
@@ -3905,6 +4095,21 @@ impl ActionRequestNormal {
             cosem_method_descriptor,
             method_invocation_parameters,
         })
+    }
+
+    /// Get the invoke ID and priority
+    pub fn invoke_id_and_priority(&self) -> &InvokeIdAndPriority {
+        &self.invoke_id_and_priority
+    }
+
+    /// Get the COSEM method descriptor
+    pub fn cosem_method_descriptor(&self) -> &CosemMethodDescriptor {
+        &self.cosem_method_descriptor
+    }
+
+    /// Get the method invocation parameters
+    pub fn method_invocation_parameters(&self) -> Option<&DataObject> {
+        self.method_invocation_parameters.as_ref()
     }
 }
 
@@ -4194,7 +4399,7 @@ impl EventNotification {
         // 3. time (optional CosemDateTime)
         encoder.encode_bool(self.time.is_some())?;
         if let Some(ref dt) = self.time {
-            let time_bytes = dt.encode()?;
+            let time_bytes = dt.encode();
             encoder.encode_bytes(&time_bytes)?;
         }
 
@@ -4301,7 +4506,7 @@ impl AccessRequestSpecification {
                 encoder.encode_octet_string(&attr_bytes)?;
                 // 2. access_selection (optional SelectiveAccessDescriptor)
                 encoder.encode_bool(access_selection.is_some())?;
-                if let Some(ref access_desc) = access_selection {
+                if let Some(access_desc) = access_selection {
                     let access_bytes = access_desc.encode()?;
                     encoder.encode_octet_string(&access_bytes)?;
                 }
@@ -4319,7 +4524,7 @@ impl AccessRequestSpecification {
                 encoder.encode_octet_string(&attr_bytes)?;
                 // 2. access_selection (optional SelectiveAccessDescriptor)
                 encoder.encode_bool(access_selection.is_some())?;
-                if let Some(ref access_desc) = access_selection {
+                if let Some(access_desc) = access_selection {
                     let access_bytes = access_desc.encode()?;
                     encoder.encode_octet_string(&access_bytes)?;
                 }
@@ -4338,7 +4543,7 @@ impl AccessRequestSpecification {
                 encoder.encode_octet_string(&method_bytes)?;
                 // 2. method_invocation_parameters (optional DataObject)
                 encoder.encode_bool(method_invocation_parameters.is_some())?;
-                if let Some(ref params) = method_invocation_parameters {
+                if let Some(params) = method_invocation_parameters {
                     encoder.encode_data_object(params)?;
                 }
             }

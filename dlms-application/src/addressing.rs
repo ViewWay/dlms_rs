@@ -24,7 +24,7 @@
 //! - Future optimization: Cache OBIS-to-SN mappings to reduce lookup overhead
 
 use dlms_core::{DlmsError, DlmsResult, ObisCode};
-use dlms_core::datatypes::{CosemDateTime, DataObject};
+use dlms_core::datatypes::{CosemDateTime, CosemDateFormat, DataObject};
 use dlms_asn1::{AxdrDecoder, AxdrEncoder};
 
 /// Addressing method for DLMS/COSEM objects
@@ -225,7 +225,7 @@ impl ShortNameReference {
 /// The current implementation supports basic access selectors. Full support
 /// for complex selectors (date ranges, criteria matching) requires additional
 /// COSEM ASN.1 structures that will be implemented in the COSEM ASN.1 module.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum AccessSelector {
     /// No selective access (access entire attribute)
     None,
@@ -377,9 +377,7 @@ impl AccessSelector {
         let params = &descriptor.access_parameters;
         
         // Extract structure from access_parameters
-        let structure = params.as_structure().ok_or_else(|| {
-            DlmsError::InvalidData("Access parameters must be a Structure".to_string())
-        })?;
+        let structure = params.as_structure()?;
         
         if structure.len() != 2 {
             return Err(DlmsError::InvalidData(format!(

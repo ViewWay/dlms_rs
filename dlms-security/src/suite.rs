@@ -223,7 +223,7 @@ impl SecuritySuiteBuilder {
 
     fn validate(&self, security_policy: &SecurityPolicy) -> DlmsResult<()> {
         // Validate security policy
-        if (security_policy.is_encrypted() || security_policy.is_authenticated_and_encrypted())
+        if security_policy.is_encrypted()
             && self.encryption_mechanism == EncryptionMechanism::None
         {
             return Err(DlmsError::Security(
@@ -231,7 +231,7 @@ impl SecuritySuiteBuilder {
             ));
         }
 
-        if (security_policy.is_authenticated() || security_policy.is_authenticated_and_encrypted())
+        if security_policy.is_authenticated()
             && !self.authentication_mechanism.is_hls_mechanism()
         {
             return Err(DlmsError::Security(
@@ -253,7 +253,7 @@ impl SecuritySuiteBuilder {
                             .to_string(),
                     ));
                 }
-                if let (Some(ref auth_key), Some(ref enc_key)) =
+                if let (Some(auth_key), Some(enc_key)) =
                     (&self.authentication_key, &self.global_unicast_encryption_key)
                 {
                     if auth_key.len() != enc_key.len() {

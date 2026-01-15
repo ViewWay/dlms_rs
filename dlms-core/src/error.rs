@@ -26,6 +26,9 @@ pub enum DlmsError {
     
     #[error("Frame invalid: {0}")]
     FrameInvalid(String),
+
+    #[error("Access denied: {0}")]
+    AccessDenied(String),
 }
 
 /// Result type alias for jDLMS operations

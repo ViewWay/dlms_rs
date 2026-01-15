@@ -200,7 +200,7 @@ impl Connection for LnConnection {
     async fn open(&mut self) -> DlmsResult<()> {
         if !matches!(self.state, ConnectionState::Closed) {
             return Err(DlmsError::Connection(std::io::Error::new(
-                std::io::ErrorKind::AlreadyConnected,
+                std::io::ErrorKind::InvalidInput,
                 "Connection is already open",
             )));
         }
@@ -357,7 +357,7 @@ impl Connection for LnConnection {
         let response = GetResponse::decode(&response_bytes)?;
 
         // Process response using GetService
-        self.get_service.process_response(&response)
+        GetService::process_response(&response)
     }
 
     async fn set_attribute(
@@ -400,7 +400,7 @@ impl Connection for LnConnection {
         let response = SetResponse::decode(&response_bytes)?;
 
         // Process response using SetService
-        self.set_service.process_response(&response)?;
+        SetService::process_response(&response)?;
         Ok(())
     }
 
@@ -443,7 +443,7 @@ impl Connection for LnConnection {
         let response = ActionResponse::decode(&response_bytes)?;
 
         // Process response using ActionService
-        self.action_service.process_response(&response)
+        ActionService::process_response(&response)
     }
 
     async fn send_request(

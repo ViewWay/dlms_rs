@@ -65,6 +65,59 @@ impl BitString {
     pub fn to_bytes(&self) -> Vec<u8> {
         self.bytes.clone()
     }
+
+    /// Create a BitString from bytes (alias for new)
+    ///
+    /// This is a convenience method that creates a BitString from a byte array
+    /// and the number of bits.
+    pub fn from_bytes(bytes: Vec<u8>, num_bits: usize) -> DlmsResult<Self> {
+        Self::new(bytes, num_bits)
+    }
+
+    /// Get the bit at a specific position
+    ///
+    /// # Arguments
+    /// * `index` - The bit index (0-based)
+    ///
+    /// # Returns
+    /// * `true` if the bit is set, `false` otherwise
+    /// * `Err` if the index is out of bounds
+    pub fn get_bit(&self, index: usize) -> DlmsResult<bool> {
+        if index >= self.num_bits {
+            return Err(DlmsError::InvalidData(format!(
+                "Bit index {} out of bounds (num_bits: {})",
+                index, self.num_bits
+            )));
+        }
+        let byte_index = index / 8;
+        let bit_index = 7 - (index % 8); // MSB first
+        Ok((self.bytes[byte_index] >> bit_index) & 1 == 1)
+    }
+
+    /// Set the bit at a specific position
+    ///
+    /// # Arguments
+    /// * `index` - The bit index (0-based)
+    /// * `value` - The value to set (true = 1, false = 0)
+    ///
+    /// # Returns
+    /// * `Err` if the index is out of bounds
+    pub fn set_bit(&mut self, index: usize, value: bool) -> DlmsResult<()> {
+        if index >= self.num_bits {
+            return Err(DlmsError::InvalidData(format!(
+                "Bit index {} out of bounds (num_bits: {})",
+                index, self.num_bits
+            )));
+        }
+        let byte_index = index / 8;
+        let bit_index = 7 - (index % 8); // MSB first
+        if value {
+            self.bytes[byte_index] |= 1 << bit_index;
+        } else {
+            self.bytes[byte_index] &= !(1 << bit_index);
+        }
+        Ok(())
+    }
 }
 
 impl fmt::Display for BitString {

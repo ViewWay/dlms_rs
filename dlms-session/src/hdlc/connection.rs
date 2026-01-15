@@ -166,9 +166,9 @@ impl UaFrameParameters {
 
         Ok(Self {
             window_size_rx,
-            max_information_field_length_rx,
+            max_information_field_length_rx: max_info_field_length_rx,
             window_size_tx,
-            max_information_field_length_tx,
+            max_information_field_length_tx: max_info_field_length_tx,
         })
     }
 
@@ -398,12 +398,8 @@ pub struct HdlcConnection<T: TransportLayer> {
     parameters: HdlcParameters,
     send_sequence: u8,
     receive_sequence: u8,
-    /// Connection state (replaces simple `closed` flag)
+    /// Connection state
     state: HdlcConnectionState,
-    /// Legacy closed flag (deprecated, use state instead)
-    /// Kept for backward compatibility during migration
-    #[deprecated(note = "Use state field instead")]
-    closed: bool,
     /// Segmented frame reassembler for automatic RR frame sending
     reassembler: SegmentedFrameReassembler,
     /// Whether to use LLC header for Information frames
@@ -464,7 +460,6 @@ impl<T: TransportLayer> HdlcConnection<T> {
             send_sequence: 0,
             receive_sequence: 0,
             state: HdlcConnectionState::Closed,
-            closed: true, // Keep in sync with state
             reassembler: SegmentedFrameReassembler::new(),
             use_llc_header: true, // Enable LLC header by default for protocol compliance
             is_client: true, // Default to client mode
@@ -764,14 +759,6 @@ impl<T: TransportLayer> HdlcConnection<T> {
                 format!("HDLC connection is not ready: {:?}", self.state),
             )));
         }
-        
-        // Also check legacy closed flag for backward compatibility
-        if self.closed && !is_control_frame {
-            return Err(DlmsError::Connection(std::io::Error::new(
-                std::io::ErrorKind::NotConnected,
-                "HDLC connection is closed",
-            )));
-        }
 
         // Check if transport layer is closed
         if self.transport.is_closed() {
@@ -835,7 +822,7 @@ impl<T: TransportLayer> HdlcConnection<T> {
         // According to DLMS standard (IEC 62056-47):
         // - Clients use LLC_REQUEST [0xE6, 0xE6, 0x00] for requests
         // - Servers use LLC_RESPONSE [0xE6, 0xE7, 0x00] for responses
-        let mut data_with_llc = if self.use_llc_header {
+        let data_with_llc = if self.use_llc_header {
             let llc_header = if self.is_client {
                 &LLC_REQUEST
             } else {
@@ -943,14 +930,6 @@ impl<T: TransportLayer> HdlcConnection<T> {
                 format!("HDLC connection is not ready: {:?}", self.state),
             )));
         }
-        
-        // Also check legacy closed flag
-        if self.closed {
-            return Err(DlmsError::Connection(std::io::Error::new(
-                std::io::ErrorKind::NotConnected,
-                "HDLC connection is closed",
-            )));
-        }
         HdlcMessageDecoder::decode(&mut self.transport, timeout).await
     }
 
@@ -997,14 +976,6 @@ impl<T: TransportLayer> HdlcConnection<T> {
             return Err(DlmsError::Connection(std::io::Error::new(
                 std::io::ErrorKind::NotConnected,
                 format!("HDLC connection is not ready: {:?}", self.state),
-            )));
-        }
-        
-        // Also check legacy closed flag
-        if self.closed {
-            return Err(DlmsError::Connection(std::io::Error::new(
-                std::io::ErrorKind::NotConnected,
-                "HDLC connection is closed",
             )));
         }
 
@@ -1174,10 +1145,6 @@ impl<T: TransportLayer> HdlcConnection<T> {
     pub fn transition_to(&mut self, new_state: HdlcConnectionState) -> DlmsResult<()> {
         self.state.validate_transition(new_state)?;
         self.state = new_state;
-        
-        // Keep closed flag in sync
-        self.closed = matches!(self.state, HdlcConnectionState::Closed);
-        
         Ok(())
     }
 
@@ -1225,7 +1192,7 @@ impl<T: TransportLayer> HdlcConnection<T> {
     /// - Better error reporting (distinguish between different failure modes)
     pub async fn close(&mut self) -> DlmsResult<()> {
         // Step 1: Check if connection is already closed (idempotent operation)
-        if self.closed {
+        if self.state == HdlcConnectionState::Closed {
             return Ok(()); // Already closed, nothing to do
         }
 

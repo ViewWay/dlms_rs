@@ -15,4 +15,5 @@ path = "src/lib.rs"
 dlms-core = { path = "../dlms-core" }
 dlms-transport = { path = "../dlms-transport" }
 bytes = { workspace = true }
+tokio = { workspace = true }
 once_cell = "1.19"

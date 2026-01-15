@@ -33,7 +33,7 @@
 use crate::scaler_unit::ScalerUnit;
 use dlms_core::{DlmsError, DlmsResult, ObisCode, DataObject};
 use dlms_application::pdu::SelectiveAccessDescriptor;
-use dlms_server::CosemObject;
+use crate::CosemObject;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -133,6 +133,7 @@ impl Register {
     /// The scaled value, or error if value is not numeric
     pub async fn scaled_value(&self) -> DlmsResult<f64> {
         let value = self.value().await;
+        let scaler_unit = self.scaler_unit().await;
         let numeric_value = match value {
             DataObject::Integer8(v) => v as f64,
             DataObject::Integer16(v) => v as f64,
@@ -150,7 +151,7 @@ impl Register {
                 ));
             }
         };
-        Ok(self.scaler_unit.scale_value(numeric_value))
+        Ok(scaler_unit.scale_value(numeric_value))
     }
 }
 
@@ -245,6 +246,7 @@ impl CosemObject for Register {
         &self,
         method_id: u8,
         _parameters: Option<DataObject>,
+        _selective_access: Option<&SelectiveAccessDescriptor>,
     ) -> DlmsResult<Option<DataObject>> {
         Err(DlmsError::InvalidData(format!(
             "Register interface class has no method {}",

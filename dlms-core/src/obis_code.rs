@@ -80,6 +80,11 @@ impl ObisCode {
     pub fn as_bytes(&self) -> &[u8; 6] {
         &self.bytes
     }
+
+    /// Get the OBIS code as a copied byte array
+    pub fn to_bytes(&self) -> [u8; 6] {
+        self.bytes
+    }
     
     /// Get the A value (first byte)
     pub fn a(&self) -> u8 {
@@ -116,7 +121,7 @@ impl fmt::Display for ObisCode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "{}.{}.{}.{}.{}",
+            "{}.{}.{}.{}.{}.{}",
             self.bytes[0], self.bytes[1], self.bytes[2],
             self.bytes[3], self.bytes[4], self.bytes[5]
         )

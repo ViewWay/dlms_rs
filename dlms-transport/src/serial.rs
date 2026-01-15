@@ -75,7 +75,7 @@ impl TransportLayer for SerialTransport {
     async fn open(&mut self) -> DlmsResult<()> {
         if !self.closed {
             return Err(DlmsError::Connection(std::io::Error::new(
-                std::io::ErrorKind::AlreadyConnected,
+                std::io::ErrorKind::InvalidInput,
                 "Connection has already been opened",
             )));
         }

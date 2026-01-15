@@ -26,6 +26,29 @@ pub trait StreamAccessor: Send + Sync {
     /// Number of bytes read, or 0 if EOF
     async fn read(&mut self, buf: &mut [u8]) -> DlmsResult<usize>;
 
+    /// Read exact number of bytes from the stream
+    ///
+    /// # Arguments
+    ///
+    /// * `buf` - Buffer to read into, will be filled completely
+    ///
+    /// # Returns
+    ///
+    /// Returns error if unable to read the exact number of bytes
+    async fn read_exact(&mut self, mut buf: &mut [u8]) -> DlmsResult<()> {
+        while !buf.is_empty() {
+            let n = self.read(buf).await?;
+            if n == 0 {
+                return Err(DlmsError::Connection(std::io::Error::new(
+                    std::io::ErrorKind::UnexpectedEof,
+                    "Failed to read exact number of bytes",
+                )));
+            }
+            buf = &mut buf[n..];
+        }
+        Ok(())
+    }
+
     /// Write data to the stream
     ///
     /// # Arguments

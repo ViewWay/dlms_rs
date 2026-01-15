@@ -12,72 +12,13 @@ use dlms_application::pdu::{
 };
 use dlms_core::{DlmsError, DlmsResult, ObisCode, DataObject};
 use dlms_security::SecuritySuite;
+use dlms_interface::CosemObject;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-/// COSEM object interface
-///
-/// All COSEM objects must implement this trait to be registered with the server.
-/// This provides a unified interface for accessing object attributes and methods.
-///
-/// # Design Philosophy
-/// Using a trait allows:
-/// - **Polymorphism**: Same code works with different object types
-/// - **Extensibility**: Easy to add new object types
-/// - **Testability**: Easy to mock objects for testing
-#[async_trait::async_trait]
-pub trait CosemObject: Send + Sync {
-    /// Get the class ID of this object
-    fn class_id(&self) -> u16;
-    
-    /// Get the OBIS code (logical name) of this object
-    fn obis_code(&self) -> ObisCode;
-    
-    /// Get an attribute value
-    ///
-    /// # Arguments
-    /// * `attribute_id` - Attribute ID to read (1-255)
-    /// * `selective_access` - Optional selective access descriptor
-    ///
-    /// # Returns
-    /// The attribute value as a `DataObject`, or error if attribute doesn't exist
-    async fn get_attribute(
-        &self,
-        attribute_id: u8,
-        selective_access: Option<&dlms_application::pdu::SelectiveAccessDescriptor>,
-    ) -> DlmsResult<DataObject>;
-    
-    /// Set an attribute value
-    ///
-    /// # Arguments
-    /// * `attribute_id` - Attribute ID to write (1-255)
-    /// * `value` - Value to write
-    /// * `selective_access` - Optional selective access descriptor
-    ///
-    /// # Returns
-    /// `Ok(())` if successful, error otherwise
-    async fn set_attribute(
-        &self,
-        attribute_id: u8,
-        value: DataObject,
-        selective_access: Option<&dlms_application::pdu::SelectiveAccessDescriptor>,
-    ) -> DlmsResult<()>;
-    
-    /// Invoke a method
-    ///
-    /// # Arguments
-    /// * `method_id` - Method ID to invoke (1-255)
-    /// * `parameters` - Optional method parameters
-    ///
-    /// # Returns
-    /// Optional return value from the method (if any)
-    async fn invoke_method(
-        &self,
-        method_id: u8,
-        parameters: Option<DataObject>,
-    ) -> DlmsResult<Option<DataObject>>;
-}
+// Re-export CosemObject for convenience
+pub use dlms_interface::CosemObject;
 
 /// Association context
 ///
