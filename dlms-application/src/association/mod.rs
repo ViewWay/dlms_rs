@@ -57,7 +57,7 @@ use std::fmt;
 
 // Re-export for convenience in this module
 use crate::pdu::{InitiateRequest, InitiateResponse};
-use dlms_asn1::iso_acse::{AARQApdu, AAREApdu, RLRQApdu, RLREApdu, AssociateResult};
+use dlms_asn1::iso_acse::{AARQApdu, AAREApdu, RLRQApdu, RLREApdu, AssociateResult, AssociateSourceDiagnostic};
 use dlms_core::DlmsResult;
 
 /// Events emitter for internal use
@@ -704,13 +704,14 @@ mod tests {
         association.on_connected(); // Set state to Idle
 
         // Create a successful AARE with InitiateResponse
-        let initiate_res = InitiateResponse::new();
+        let conformance = crate::pdu::Conformance::new();
+        let initiate_res = InitiateResponse::new(6, conformance, 2048, 0x0007).unwrap();
 
         // Create AARE with InitiateResponse in user_information
         let mut aare = AAREApdu::new(
             vec![1, 0, 17, 0, 0, 8, 0, 101], // DLMS application context
             AssociateResult::Accepted,
-            AssociateSourceDiagnostic::new(0),
+            AssociateSourceDiagnostic::null(),
         );
         let initiate_bytes = initiate_res.encode().unwrap();
         aare.set_initiate_response(initiate_bytes);
@@ -734,7 +735,7 @@ mod tests {
         let aare = AAREApdu::new(
             vec![1, 0, 17, 0, 0, 8, 0, 101], // DLMS application context
             AssociateResult::RejectedPermanent,
-            AssociateSourceDiagnostic::new(1), // Not authorized
+            AssociateSourceDiagnostic::service_user(1), // Not authorized
         );
 
         let aare_bytes = aare.encode().unwrap();

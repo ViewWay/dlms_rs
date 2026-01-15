@@ -670,7 +670,6 @@ impl SnPdu {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use dlms_core::datatypes::Data;
 
     #[test]
     fn test_short_name() {
@@ -691,7 +690,7 @@ mod tests {
 
     #[test]
     fn test_read_request_encode_decode() {
-        let invoke_id = InvokeIdAndPriority::new(0x12);
+        let invoke_id = InvokeIdAndPriority::new(0x12, false).unwrap();
         let short_name = ShortName::new(0x1234);
         let request = ReadRequest::new(invoke_id, short_name);
 
@@ -706,8 +705,8 @@ mod tests {
 
     #[test]
     fn test_read_response_encode_decode() {
-        let invoke_id = InvokeIdAndPriority::new(0x12);
-        let data = DataObject::new(Data::Unsigned8(42));
+        let invoke_id = InvokeIdAndPriority::new(0x12, false).unwrap();
+        let data = DataObject::Unsigned8(42);
         let result = GetDataResult::Data(data);
         let response = ReadResponse::new(invoke_id, result);
 
@@ -720,9 +719,9 @@ mod tests {
 
     #[test]
     fn test_write_request_encode_decode() {
-        let invoke_id = InvokeIdAndPriority::new(0x12);
+        let invoke_id = InvokeIdAndPriority::new(0x12, false).unwrap();
         let short_name = ShortName::new(0x1234);
-        let data = DataObject::new(Data::Unsigned8(42));
+        let data = DataObject::Unsigned8(42);
         let request = WriteRequest::new(invoke_id, short_name, data);
 
         let encoded = request.encode().unwrap();
@@ -735,7 +734,7 @@ mod tests {
 
     #[test]
     fn test_write_response_encode_decode() {
-        let invoke_id = InvokeIdAndPriority::new(0x12);
+        let invoke_id = InvokeIdAndPriority::new(0x12, false).unwrap();
         let result = SetDataResult::Success;
         let response = WriteResponse::new(invoke_id, result);
 
@@ -750,7 +749,7 @@ mod tests {
     #[test]
     fn test_unconfirmed_write_request_encode_decode() {
         let short_name = ShortName::new(0x1234);
-        let data = DataObject::new(Data::Unsigned8(42));
+        let data = DataObject::Unsigned8(42);
         let request = UnconfirmedWriteRequest::new(short_name, data);
 
         let encoded = request.encode().unwrap();
@@ -763,7 +762,7 @@ mod tests {
     #[test]
     fn test_information_report_request_encode_decode() {
         let short_name = ShortName::new(0x1234);
-        let data = DataObject::new(Data::Unsigned8(42));
+        let data = DataObject::Unsigned8(42);
         let request = InformationReportRequest::new(short_name, data);
 
         let encoded = request.encode().unwrap();
@@ -775,7 +774,7 @@ mod tests {
 
     #[test]
     fn test_sn_pdu_auto_decode() {
-        let invoke_id = InvokeIdAndPriority::new(0x12);
+        let invoke_id = InvokeIdAndPriority::new(0x12, false).unwrap();
         let short_name = ShortName::new(0x1234);
         let request = ReadRequest::new(invoke_id, short_name);
 

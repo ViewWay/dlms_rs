@@ -270,12 +270,11 @@ mod tests {
 
     #[test]
     fn test_get_service_create_normal_request() {
-        let service = GetService::new();
         let invoke = InvokeIdAndPriority::new(1, false).unwrap();
         let obis = ObisCode::new(1, 1, 1, 8, 0, 255);
         let attr_desc = CosemAttributeDescriptor::new_logical_name(1, obis, 2).unwrap();
 
-        let request = service.create_normal_request(invoke, attr_desc, None).unwrap();
+        let request = GetService::create_normal_request(invoke, attr_desc, None).unwrap();
 
         match request {
             GetRequest::Normal(_) => {}

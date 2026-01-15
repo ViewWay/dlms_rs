@@ -639,7 +639,7 @@ impl AAREApdu {
             protocol_version: None,
             application_context_name: Vec::new(),
             result: AssociateResult::Accepted, // Will be set below
-            result_source_diagnostic: AssociateSourceDiagnostic::new(0), // Will be set below
+            result_source_diagnostic: AssociateSourceDiagnostic::null(), // Will be set below
             responding_ap_title: None,
             responding_ae_qualifier: None,
             responding_ap_invocation_identifier: None,
@@ -993,7 +993,7 @@ mod tests {
         let aare = AAREApdu::new(
             vec![1, 0, 17, 0, 0, 128, 0, 1], // DLMS application context
             AssociateResult::Accepted,
-            AssociateSourceDiagnostic::new(0),
+            AssociateSourceDiagnostic::null(),
         );
 
         let encoded = aare.encode().unwrap();

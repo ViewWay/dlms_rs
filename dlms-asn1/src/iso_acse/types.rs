@@ -720,45 +720,250 @@ impl ApplicationContextNameList {
 ///
 /// Provides diagnostic information about association rejection.
 ///
-/// # TODO
-/// - [ ] 实现完整的 AssociateSourceDiagnostic 结构（CHOICE 类型）
-/// - [ ] 实现 AcseServiceUser 和 AcseServiceProvider 枚举
+/// This is a CHOICE type that indicates whether the diagnostic comes from
+/// the ACSE service user or the ACSE service provider.
+///
+/// # ASN.1 Definition
+/// ```asn1
+/// AssociateSourceDiagnostic ::= CHOICE {
+///     acse-service-user [0] INTEGER,
+///     acse-service-provider [1] INTEGER
+/// }
+/// ```
+///
+/// # Why CHOICE Type?
+/// The source of the diagnostic matters because:
+/// - Service user diagnostics indicate application-level issues
+/// - Service provider diagnostics indicate protocol/communication issues
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AssociateSourceDiagnostic {
-    /// Diagnostic value (placeholder)
-    value: i64,
+pub enum AssociateSourceDiagnostic {
+    /// Diagnostic from ACSE service user (tag 0)
+    /// Indicates application-level rejection reason
+    AcseServiceUser(i64),
+
+    /// Diagnostic from ACSE service provider (tag 1)
+    /// Indicates protocol-level rejection reason
+    AcseServiceProvider(i64),
 }
 
 impl AssociateSourceDiagnostic {
-    /// Create new Associate Source Diagnostic
-    pub fn new(value: i64) -> Self {
-        Self { value }
+    /// Create new AcseServiceUser diagnostic
+    pub fn service_user(value: i64) -> Self {
+        Self::AcseServiceUser(value)
+    }
+
+    /// Create new AcseServiceProvider diagnostic
+    pub fn service_provider(value: i64) -> Self {
+        Self::AcseServiceProvider(value)
     }
 
     /// Get diagnostic value
     pub fn value(&self) -> i64 {
-        self.value
+        match self {
+            Self::AcseServiceUser(v) => *v,
+            Self::AcseServiceProvider(v) => *v,
+        }
+    }
+
+    /// Get the tag value for this variant
+    #[must_use]
+    pub const fn tag(&self) -> u8 {
+        match self {
+            Self::AcseServiceUser(_) => 0,
+            Self::AcseServiceProvider(_) => 1,
+        }
+    }
+
+    /// Check if this is a service user diagnostic
+    #[must_use]
+    pub fn is_service_user(&self) -> bool {
+        matches!(self, Self::AcseServiceUser(_))
+    }
+
+    /// Check if this is a service provider diagnostic
+    #[must_use]
+    pub fn is_service_provider(&self) -> bool {
+        matches!(self, Self::AcseServiceProvider(_))
     }
 
     /// Encode to BER format
     ///
-    /// # TODO
-    /// - [ ] 实现完整的编码逻辑（CHOICE 类型）
+    /// Encoding as CHOICE with explicit context-specific tag:
+    /// - Tag (0xA0 or 0xA1 for context-specific constructed)
+    /// - Length
+    /// - INTEGER value
     pub fn encode(&self) -> DlmsResult<Vec<u8>> {
-        // Placeholder: encode as INTEGER
-        let mut encoder = BerEncoder::new();
-        encoder.encode_integer(self.value)?;
-        Ok(encoder.into_bytes())
+        let mut result = Vec::new();
+
+        // Context-specific constructed tag: 0b10100000 | tag_number
+        // Bits 7-6: class (10 = context-specific)
+        // Bit 5: constructed (1)
+        // Bits 4-0: tag number
+        let tag_byte = 0xA0 | (self.tag() & 0x1F);
+        result.push(tag_byte);
+
+        // Encode the INTEGER value
+        let value_bytes = {
+            let mut enc = BerEncoder::new();
+            enc.encode_integer(self.value())?;
+            enc.into_bytes()
+        };
+
+        // Length
+        result.push(value_bytes.len() as u8);
+
+        // Value
+        result.extend_from_slice(&value_bytes);
+
+        Ok(result)
     }
 
     /// Decode from BER format
     ///
-    /// # TODO
-    /// - [ ] 实现完整的解码逻辑
-    pub fn decode(_data: &[u8]) -> DlmsResult<Self> {
-        // Placeholder: decode as INTEGER
-        let mut decoder = BerDecoder::new(_data);
-        let value = decoder.decode_integer()?;
-        Ok(Self::new(value))
+    /// Expects a context-specific constructed tag followed by an INTEGER
+    pub fn decode(data: &[u8]) -> DlmsResult<Self> {
+        if data.is_empty() {
+            return Err(DlmsError::InvalidData(
+                "Empty AssociateSourceDiagnostic".to_string(),
+            ));
+        }
+
+        // First byte should be context-specific constructed tag (0xA0 or 0xA1)
+        let tag_byte = data[0];
+        let tag_class = (tag_byte >> 6) & 0x03;
+        let is_constructed = (tag_byte & 0x20) != 0;
+        let tag_number = tag_byte & 0x1F;
+
+        if tag_class != 2 {
+            // Not context-specific
+            return Err(DlmsError::InvalidData(
+                format!("Expected context-specific tag, got class {}", tag_class),
+            ));
+        }
+
+        if !is_constructed {
+            return Err(DlmsError::InvalidData(
+                "Expected constructed tag for AssociateSourceDiagnostic".to_string(),
+            ));
+        }
+
+        // Second byte is length
+        if data.len() < 2 {
+            return Err(DlmsError::InvalidData(
+                "Incomplete AssociateSourceDiagnostic (missing length)".to_string(),
+            ));
+        }
+        let length = data[1] as usize;
+
+        // Rest should be INTEGER value
+        if data.len() < 2 + length {
+            return Err(DlmsError::InvalidData(
+                "Incomplete AssociateSourceDiagnostic (truncated value)".to_string(),
+            ));
+        }
+
+        let value_bytes = &data[2..2 + length];
+        let value = {
+            let mut dec = BerDecoder::new(value_bytes);
+            dec.decode_integer()?
+        };
+
+        match tag_number {
+            0 => Ok(Self::AcseServiceUser(value)),
+            1 => Ok(Self::AcseServiceProvider(value)),
+            _ => Err(DlmsError::InvalidData(format!(
+                "Invalid AssociateSourceDiagnostic tag: {}",
+                tag_number
+            ))),
+        }
+    }
+
+    /// Create a null diagnostic (service user, value 0)
+    /// Used for successful association without specific diagnostic
+    #[must_use]
+    pub fn null() -> Self {
+        Self::AcseServiceUser(0)
     }
 }
+
+/// ACSE Service User Diagnostic Codes
+///
+/// Standard diagnostic codes from ACSE service user.
+///
+/// # Values
+/// - 0: null (no reason)
+/// - 1: no-reason (no reason given)
+/// - 2: application-context-name-not-supported
+/// - 3: calling-AP-title-not-recognized
+/// - 4: calling-AE-qualifier-not-recognized
+/// - 5: calling-AP-invocation-identifier-not-recognized
+/// - 6: called-AP-title-not-recognized
+/// - 7: called-AE-qualifier-not-recognized
+/// - 8: called-AP-invocation-identifier-not-recognized
+/// - 9: calling-AE-title-not-recognized
+/// - 10: called-AE-title-not-recognized
+/// - 11: reason-not-specified
+/// - 12: authentication-required
+/// - 13: authentication-mechanism-name-not-recognized
+/// - 14: authentication-failure
+/// - 15: authentication-name-not-recognized
+///
+/// # Why Struct Instead of Enum?
+/// The diagnostic codes can be extended, and using integer values allows
+/// for vendor-specific codes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AcseServiceUserDiagnostic(pub i64);
+
+impl AcseServiceUserDiagnostic {
+    /// Null diagnostic (no reason)
+    pub const NULL: Self = Self(0);
+    /// No reason given
+    pub const NO_REASON: Self = Self(1);
+    /// Application context name not supported
+    pub const CONTEXT_NOT_SUPPORTED: Self = Self(2);
+    /// Authentication required
+    pub const AUTHENTICATION_REQUIRED: Self = Self(12);
+    /// Authentication mechanism name not recognized
+    pub const AUTH_MECHANISM_NOT_RECOGNIZED: Self = Self(13);
+    /// Authentication failure
+    pub const AUTHENTICATION_FAILURE: Self = Self(14);
+    /// Authentication name not recognized
+    pub const AUTH_NAME_NOT_RECOGNIZED: Self = Self(15);
+
+    /// Get the diagnostic value
+    #[must_use]
+    pub fn value(self) -> i64 {
+        self.0
+    }
+}
+
+/// ACSE Service Provider Diagnostic Codes
+///
+/// Standard diagnostic codes from ACSE service provider.
+///
+/// # Values
+/// - 0: null (no reason)
+/// - 1: no-reason (no reason given)
+/// - 2: temporary-congestion
+///
+/// # Why Struct Instead of Enum?
+/// The diagnostic codes can be extended, and using integer values allows
+/// for vendor-specific codes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AcseServiceProviderDiagnostic(pub i64);
+
+impl AcseServiceProviderDiagnostic {
+    /// Null diagnostic (no reason)
+    pub const NULL: Self = Self(0);
+    /// No reason given
+    pub const NO_REASON: Self = Self(1);
+    /// Temporary congestion
+    pub const TEMPORARY_CONGESTION: Self = Self(2);
+
+    /// Get the diagnostic value
+    #[must_use]
+    pub fn value(self) -> i64 {
+        self.0
+    }
+}
+

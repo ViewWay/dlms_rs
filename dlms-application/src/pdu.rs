@@ -1375,18 +1375,16 @@ impl CosemAttributeDescriptor {
     pub fn decode(data: &[u8]) -> DlmsResult<Self> {
         let mut decoder = AxdrDecoder::new(data);
 
-        // Decode in reverse order
-        // 1. class_id (Unsigned16)
-        let class_id = decoder.decode_u16()?;
+        // Decode in the same order as encode
+        // 1. attribute_id (Integer8)
+        let attribute_id_i8: i8 = decoder.decode_i8()?;
+        let attribute_id: u8 = attribute_id_i8 as u8;
 
         // 2. instance_id (OctetString)
         let instance_bytes = decoder.decode_octet_string()?;
 
-        // 3. attribute_id (Integer8)
-        // Note: decode_i8 returns i8, but attribute_id is u8. We cast the signed value to unsigned.
-        // This is safe because attribute IDs are always positive values (0-255 range).
-        let attribute_id_i8: i8 = decoder.decode_i8()?;
-        let attribute_id: u8 = attribute_id_i8 as u8;
+        // 3. class_id (Unsigned16)
+        let class_id = decoder.decode_u16()?;
 
         // Determine addressing method by instance_id length
         match instance_bytes.len() {
@@ -1923,28 +1921,13 @@ impl GetRequestNormal {
     /// Consider modifying decode methods to return (value, bytes_consumed) tuples
     /// to avoid the need for re-encoding to calculate consumed bytes.
     pub fn decode(data: &[u8]) -> DlmsResult<Self> {
-        let _decoder = AxdrDecoder::new(data);
+        let mut decoder = AxdrDecoder::new(data);
         let mut pos = 0;
 
-        // Decode in reverse order (A-XDR convention)
-        // 1. invoke_id_and_priority (InvokeIdAndPriority)
-        // Decode from current position
-        let invoke_id_and_priority = InvokeIdAndPriority::decode(&data[pos..])?;
-        // Calculate bytes consumed by re-encoding
-        let invoke_encoded = invoke_id_and_priority.encode()?;
-        pos += invoke_encoded.len();
-
-        // 2. cosem_attribute_descriptor (CosemAttributeDescriptor)
-        let cosem_attribute_descriptor = CosemAttributeDescriptor::decode(&data[pos..])?;
-        let attr_encoded = cosem_attribute_descriptor.encode()?;
-        pos += attr_encoded.len();
-
-        // 3. access_selection (optional SelectiveAccessDescriptor)
-        // Optional field: decode usage flag first, then value if used
-        // Create a temporary decoder to read the boolean flag
-        let mut temp_decoder = AxdrDecoder::new(&data[pos..]);
-        let access_used = temp_decoder.decode_bool()?;
-        pos += temp_decoder.position();
+        // Decode in the same order as encode (access_selection, cosem_attribute_descriptor, invoke_id_and_priority)
+        // 1. access_selection (optional SelectiveAccessDescriptor)
+        let access_used = decoder.decode_bool()?;
+        pos = decoder.position();
 
         let access_selection = if access_used {
             let access = SelectiveAccessDescriptor::decode(&data[pos..])?;
@@ -1954,6 +1937,14 @@ impl GetRequestNormal {
         } else {
             None
         };
+
+        // 2. cosem_attribute_descriptor (CosemAttributeDescriptor)
+        let cosem_attribute_descriptor = CosemAttributeDescriptor::decode(&data[pos..])?;
+        let attr_encoded = cosem_attribute_descriptor.encode()?;
+        pos += attr_encoded.len();
+
+        // 3. invoke_id_and_priority (InvokeIdAndPriority)
+        let invoke_id_and_priority = InvokeIdAndPriority::decode(&data[pos..])?;
 
         Ok(Self {
             invoke_id_and_priority,
@@ -2045,15 +2036,14 @@ impl GetResponseNormal {
     pub fn decode(data: &[u8]) -> DlmsResult<Self> {
         let mut pos = 0;
 
-        // Decode in reverse order (A-XDR convention)
-        // 1. invoke_id_and_priority (InvokeIdAndPriority)
-        let invoke_id_and_priority = InvokeIdAndPriority::decode(&data[pos..])?;
-        let invoke_encoded = invoke_id_and_priority.encode()?;
-        pos += invoke_encoded.len();
-
-        // 2. result (GetDataResult)
+        // Decode in the same order as encode (result, invoke_id_and_priority)
+        // 1. result (GetDataResult)
         let result = GetDataResult::decode(&data[pos..])?;
-        // Note: We don't need to track position for result since it's the last field
+        let result_encoded = result.encode()?;
+        pos += result_encoded.len();
+
+        // 2. invoke_id_and_priority (InvokeIdAndPriority)
+        let invoke_id_and_priority = InvokeIdAndPriority::decode(&data[pos..])?;
 
         Ok(Self {
             invoke_id_and_priority,
@@ -2181,12 +2171,19 @@ impl GetRequest {
                     }
                 }
 
-                // Encode in reverse order (A-XDR SEQUENCE convention)
-                // 1. access_selection_list (optional array of optional SelectiveAccessDescriptor)
+                // Encode choice tag FIRST (3 = WithList)
+                encoder.encode_u8(3)?;
+
+                // Encode value after tag (in reverse order for A-XDR SEQUENCE convention)
+                // Reverse order: last field to be decoded is encoded FIRST
+                // Decoding order: invoke_id_and_priority -> attribute_descriptor_list -> access_selection_list
+                // Encoding order: access_selection_list -> attribute_descriptor_list -> invoke_id_and_priority
+
+                // 1. access_selection_list (optional array) - encoded FIRST (decoded LAST)
                 if let Some(access_list) = access_selection_list {
                     // Encode usage flag: true (array exists)
                     encoder.encode_bool(true)?;
-                    
+
                     // Encode array length
                     let len_enc = if access_list.len() < 128 {
                         LengthEncoding::Short(access_list.len() as u8)
@@ -2194,7 +2191,7 @@ impl GetRequest {
                         LengthEncoding::Long(access_list.len())
                     };
                     encoder.encode_bytes(&len_enc.encode())?;
-                    
+
                 // Encode each element (in forward order, as per A-XDR array encoding)
                 // Each element is optional, so encode flag then value
                 for access_opt in access_list.iter() {
@@ -2208,8 +2205,8 @@ impl GetRequest {
                     // Encode usage flag: false (array does not exist)
                     encoder.encode_bool(false)?;
                 }
-                
-                // 2. attribute_descriptor_list (required array of CosemAttributeDescriptor)
+
+                // 2. attribute_descriptor_list (required array) - encoded MIDDLE (decoded MIDDLE)
                 // Encode array length
                 let len_enc = if attribute_descriptor_list.len() < 128 {
                     LengthEncoding::Short(attribute_descriptor_list.len() as u8)
@@ -2217,19 +2214,16 @@ impl GetRequest {
                     LengthEncoding::Long(attribute_descriptor_list.len())
                 };
                 encoder.encode_bytes(&len_enc.encode())?;
-                
+
                 // Encode each element (in forward order, as per A-XDR array encoding)
                 for attr_desc in attribute_descriptor_list.iter() {
                     let attr_bytes = attr_desc.encode()?;
                     encoder.encode_octet_string(&attr_bytes)?;
                 }
-                
-                // 3. invoke_id_and_priority (InvokeIdAndPriority)
+
+                // 3. invoke_id_and_priority - encoded LAST (decoded FIRST)
                 let invoke_bytes = invoke_id_and_priority.encode()?;
                 encoder.encode_octet_string(&invoke_bytes)?;
-                
-                // 4. Choice tag (3 = WithList)
-                encoder.encode_u8(3)?;
             }
         }
 
@@ -2238,24 +2232,24 @@ impl GetRequest {
 
     /// Decode from A-XDR format
     pub fn decode(data: &[u8]) -> DlmsResult<Self> {
-        let mut decoder = AxdrDecoder::new(data);
-
-        // Decode choice tag first (A-XDR reverse order)
-        let choice_tag = decoder.decode_u8()?;
+        // First byte is the choice tag
+        if data.is_empty() {
+            return Err(DlmsError::InvalidData("Empty data for GetRequest".to_string()));
+        }
+        let choice_tag = data[0];
 
         match choice_tag {
             1 => {
                 // Normal variant
+                let mut decoder = AxdrDecoder::new(&data[1..]);
                 let normal_bytes = decoder.decode_octet_string()?;
                 let normal = GetRequestNormal::decode(&normal_bytes)?;
                 Ok(Self::Normal(normal))
             }
             2 => {
                 // Next variant
+                let mut decoder = AxdrDecoder::new(&data[1..]);
                 // Decode in reverse order (A-XDR SEQUENCE convention)
-                // Encoding order: tag, block_number, invoke_bytes (SEQUENCE fields in reverse order)
-                // Decoding order: tag, then decode fields in reverse of encoding order
-                // Since encoding is: block_number, invoke_bytes, decoding should be: invoke_bytes, block_number
                 let invoke_bytes = decoder.decode_octet_string()?;
                 let invoke_id_and_priority = InvokeIdAndPriority::decode(&invoke_bytes)?;
                 let block_number = decoder.decode_u32()?;
@@ -2265,50 +2259,13 @@ impl GetRequest {
                 })
             }
             3 => {
-                // WithList variant
-                // Decode in reverse order (A-XDR SEQUENCE convention)
-                // 1. invoke_id_and_priority (InvokeIdAndPriority)
-                let invoke_bytes = decoder.decode_octet_string()?;
-                let invoke_id_and_priority = InvokeIdAndPriority::decode(&invoke_bytes)?;
-                
-                // 2. attribute_descriptor_list (required array of CosemAttributeDescriptor)
-                // Decode array length: first byte indicates format
-                let first_byte: u8 = decoder.decode_u8()?;
-                let attr_list_len: usize = if (first_byte & 0x80) == 0 {
-                    // Short form: length < 128
-                    first_byte as usize
-                } else {
-                    // Long form: length-of-length byte + length bytes
-                    let length_of_length = (first_byte & 0x7F) as usize;
-                    if length_of_length == 0 || length_of_length > 4 {
-                        return Err(DlmsError::InvalidData(format!(
-                            "GetRequest::WithList: Invalid length-of-length: {}",
-                            length_of_length
-                        )));
-                    }
-                    let len_bytes = decoder.decode_fixed_bytes(length_of_length)?;
-                    let mut len = 0usize;
-                    for &byte in len_bytes.iter() {
-                        len = (len << 8) | (byte as usize);
-                    }
-                    len
-                };
-                
-                if attr_list_len == 0 {
-                    return Err(DlmsError::InvalidData(
-                        "GetRequest::WithList: attribute_descriptor_list cannot be empty".to_string(),
-                    ));
-                }
-                
-                // Decode each element (in forward order)
-                let mut attribute_descriptor_list = Vec::with_capacity(attr_list_len);
-                for _ in 0..attr_list_len {
-                    let attr_bytes = decoder.decode_octet_string()?;
-                    attribute_descriptor_list.push(CosemAttributeDescriptor::decode(&attr_bytes)?);
-                }
-                
-                // 3. access_selection_list (optional array of optional SelectiveAccessDescriptor)
-                // Decode usage flag first
+                // WithList variant - value is NOT wrapped in octet string, decode directly from remaining bytes
+                let mut decoder = AxdrDecoder::new(&data[1..]);
+
+                // The actual encoding order is: access_selection_list -> attribute_descriptor_list -> invoke_id_and_priority
+                // So decode in forward order (not reverse)
+
+                // 1. access_selection_list (optional array) - encoded FIRST
                 let has_access_list = decoder.decode_bool()?;
                 let access_selection_list = if has_access_list {
                     // Decode array length
@@ -2332,18 +2289,8 @@ impl GetRequest {
                         }
                         len
                     };
-                    
-                    // Validate length matches attribute_descriptor_list
-                    if access_list_len != attribute_descriptor_list.len() {
-                        return Err(DlmsError::InvalidData(format!(
-                            "GetRequest::WithList: access_selection_list length ({}) does not match attribute_descriptor_list length ({})",
-                            access_list_len,
-                            attribute_descriptor_list.len()
-                        )));
-                    }
-                    
+
                     // Decode each element (in forward order)
-                    // Each element is optional, so decode flag then value
                     let mut access_list = Vec::with_capacity(access_list_len);
                     for _ in 0..access_list_len {
                         let has_access = decoder.decode_bool()?;
@@ -2355,12 +2302,62 @@ impl GetRequest {
                         };
                         access_list.push(access);
                     }
-                    
+
                     Some(access_list)
                 } else {
                     None
                 };
-                
+
+                // 2. attribute_descriptor_list (required array) - encoded MIDDLE
+                let first_byte: u8 = decoder.decode_u8()?;
+                let attr_list_len: usize = if (first_byte & 0x80) == 0 {
+                    // Short form: length < 128
+                    first_byte as usize
+                } else {
+                    // Long form: length-of-length byte + length bytes
+                    let length_of_length = (first_byte & 0x7F) as usize;
+                    if length_of_length == 0 || length_of_length > 4 {
+                        return Err(DlmsError::InvalidData(format!(
+                            "GetRequest::WithList: Invalid length-of-length: {}",
+                            length_of_length
+                        )));
+                    }
+                    let len_bytes = decoder.decode_fixed_bytes(length_of_length)?;
+                    let mut len = 0usize;
+                    for &byte in len_bytes.iter() {
+                        len = (len << 8) | (byte as usize);
+                    }
+                    len
+                };
+
+                if attr_list_len == 0 {
+                    return Err(DlmsError::InvalidData(
+                        "GetRequest::WithList: attribute_descriptor_list cannot be empty".to_string(),
+                    ));
+                }
+
+                // Validate access_selection_list length matches attribute_descriptor_list
+                if let Some(ref access_list) = access_selection_list {
+                    if access_list.len() != attr_list_len {
+                        return Err(DlmsError::InvalidData(format!(
+                            "GetRequest::WithList: access_selection_list length ({}) does not match attribute_descriptor_list length ({})",
+                            access_list.len(),
+                            attr_list_len
+                        )));
+                    }
+                }
+
+                // Decode each element (in forward order)
+                let mut attribute_descriptor_list = Vec::with_capacity(attr_list_len);
+                for _ in 0..attr_list_len {
+                    let attr_bytes = decoder.decode_octet_string()?;
+                    attribute_descriptor_list.push(CosemAttributeDescriptor::decode(&attr_bytes)?);
+                }
+
+                // 3. invoke_id_and_priority - encoded LAST
+                let invoke_bytes = decoder.decode_octet_string()?;
+                let invoke_id_and_priority = InvokeIdAndPriority::decode(&invoke_bytes)?;
+
                 Ok(Self::WithList {
                     invoke_id_and_priority,
                     attribute_descriptor_list,
@@ -2443,11 +2440,11 @@ impl GetResponse {
 
         match self {
             GetResponse::Normal(normal) => {
-                // Encode value first (A-XDR reverse order)
+                // Encode choice tag FIRST (1 = Normal)
+                encoder.encode_u8(1)?;
+                // Encode value after tag (as octet string with length prefix)
                 let normal_bytes = normal.encode()?;
                 encoder.encode_bytes(&normal_bytes)?;
-                // Encode choice tag (1 = Normal)
-                encoder.encode_u8(1)?;
             }
             GetResponse::WithDataBlock {
                 invoke_id_and_priority,
@@ -2478,9 +2475,17 @@ impl GetResponse {
                         "GetResponse::WithList: result_list cannot be empty".to_string(),
                     ));
                 }
-                
-                // Encode in reverse order (A-XDR SEQUENCE convention)
-                // 1. result_list (required array of GetDataResult)
+
+                // Encode choice tag FIRST (3 = WithList)
+                encoder.encode_u8(3)?;
+
+                // Encode value after tag (in reverse order for A-XDR SEQUENCE convention)
+                // Reverse order: invoke_id_and_priority LAST (decoded FIRST), result_list FIRST (decoded LAST)
+                // 1. invoke_id_and_priority (InvokeIdAndPriority) - encoded LAST, decoded FIRST
+                let invoke_bytes = invoke_id_and_priority.encode()?;
+                encoder.encode_octet_string(&invoke_bytes)?;
+
+                // 2. result_list (required array of GetDataResult) - encoded FIRST, decoded LAST
                 // Encode array length
                 let len_enc = if result_list.len() < 128 {
                     LengthEncoding::Short(result_list.len() as u8)
@@ -2488,19 +2493,13 @@ impl GetResponse {
                     LengthEncoding::Long(result_list.len())
                 };
                 encoder.encode_bytes(&len_enc.encode())?;
-                
+
                 // Encode each element (in forward order, as per A-XDR array encoding)
+                // Each element is encoded as octet string with length prefix
                 for result in result_list.iter() {
                     let result_bytes = result.encode()?;
-                    encoder.encode_bytes(&result_bytes)?;
+                    encoder.encode_octet_string(&result_bytes)?;
                 }
-                
-                // 2. invoke_id_and_priority (InvokeIdAndPriority)
-                let invoke_bytes = invoke_id_and_priority.encode()?;
-                encoder.encode_bytes(&invoke_bytes)?;
-                
-                // 3. Choice tag (3 = WithList)
-                encoder.encode_u8(3)?;
             }
         }
 
@@ -2509,20 +2508,22 @@ impl GetResponse {
 
     /// Decode from A-XDR format
     pub fn decode(data: &[u8]) -> DlmsResult<Self> {
-        let mut decoder = AxdrDecoder::new(data);
-
-        // Decode choice tag first (A-XDR reverse order)
-        let choice_tag = decoder.decode_u8()?;
+        // First byte is the choice tag
+        if data.is_empty() {
+            return Err(DlmsError::InvalidData("Empty data for GetResponse".to_string()));
+        }
+        let choice_tag = data[0];
 
         match choice_tag {
             1 => {
                 // Normal variant
-                let normal_bytes = decoder.decode_octet_string()?;
-                let normal = GetResponseNormal::decode(&normal_bytes)?;
+                // The remaining bytes are the Normal value (no length prefix)
+                let normal = GetResponseNormal::decode(&data[1..])?;
                 Ok(Self::Normal(normal))
             }
             2 => {
                 // WithDataBlock variant
+                let mut decoder = AxdrDecoder::new(&data[1..]);
                 let invoke_bytes = decoder.decode_octet_string()?;
                 let invoke_id_and_priority = InvokeIdAndPriority::decode(&invoke_bytes)?;
                 let block_number = decoder.decode_u32()?;
@@ -2537,11 +2538,12 @@ impl GetResponse {
             }
             3 => {
                 // WithList variant
+                let mut decoder = AxdrDecoder::new(&data[1..]);
                 // Decode in reverse order (A-XDR SEQUENCE convention)
                 // 1. invoke_id_and_priority (InvokeIdAndPriority)
                 let invoke_bytes = decoder.decode_octet_string()?;
                 let invoke_id_and_priority = InvokeIdAndPriority::decode(&invoke_bytes)?;
-                
+
                 // 2. result_list (required array of GetDataResult)
                 // Decode array length: first byte indicates format
                 let first_byte: u8 = decoder.decode_u8()?;
@@ -2564,20 +2566,20 @@ impl GetResponse {
                     }
                     len
                 };
-                
+
                 if result_list_len == 0 {
                     return Err(DlmsError::InvalidData(
                         "GetResponse::WithList: result_list cannot be empty".to_string(),
                     ));
                 }
-                
+
                 // Decode each element (in forward order)
                 let mut result_list = Vec::with_capacity(result_list_len);
                 for _ in 0..result_list_len {
                     let result_bytes = decoder.decode_octet_string()?;
                     result_list.push(GetDataResult::decode(&result_bytes)?);
                 }
-                
+
                 Ok(Self::WithList {
                     invoke_id_and_priority,
                     result_list,
@@ -2883,16 +2885,16 @@ mod tests {
         let obis2 = ObisCode::new(1, 1, 2, 8, 0, 255);
         let attr_desc1 = CosemAttributeDescriptor::new_logical_name(1, obis1, 2).unwrap();
         let attr_desc2 = CosemAttributeDescriptor::new_logical_name(1, obis2, 2).unwrap();
-        
+
         let attribute_descriptor_list = vec![attr_desc1.clone(), attr_desc2.clone()];
-        
+
         // Test without access_selection_list
         let request = GetRequest::WithList {
             invoke_id_and_priority: invoke.clone(),
             attribute_descriptor_list: attribute_descriptor_list.clone(),
             access_selection_list: None,
         };
-        
+
         let encoded = request.encode().unwrap();
         let decoded = GetRequest::decode(&encoded).unwrap();
         
@@ -4437,6 +4439,224 @@ impl EventNotification {
 }
 
 // ============================================================================
+// Data Notification PDU Implementation
+// ============================================================================
+
+/// Data Notification PDU
+///
+/// Unconfirmed service used by the server to push data to the client without
+/// an explicit request. This enables proactive data transmission and real-time updates.
+///
+/// # Structure
+/// - `variable_name_specification`: Optional specification of the data source (for LN addressing)
+/// - `data_value`: The data value being notified
+///
+/// # Why Unconfirmed Service?
+/// Data notifications are fire-and-forget messages. The server doesn't wait for
+/// acknowledgment, allowing for efficient asynchronous data pushing. This design
+/// reduces latency and overhead for time-sensitive data updates.
+///
+/// # Usage Scenarios
+/// - **Push Notifications**: Server proactively sends data when values change
+/// - **Event-driven Updates**: Client receives updates without polling
+/// - **Real-time Monitoring**: Continuous data streaming for critical parameters
+///
+/// # Variable Name Specification
+/// For Logical Name addressing, this specifies which COSEM object attribute
+/// the data comes from. For Short Name addressing or when the context is known,
+/// this field may be omitted.
+///
+/// # Optimization Considerations
+/// - Data notifications may be frequent for monitoring applications
+/// - The optional variable_name_specification allows compact encoding when context is known
+/// - Future optimization: Consider batching multiple notifications in a single PDU
+#[derive(Debug, Clone, PartialEq)]
+pub struct DataNotification {
+    /// Optional specification of the data source
+    pub variable_name_specification: Option<VariableNameSpecification>,
+    /// The data value being notified
+    pub data_value: DataObject,
+}
+
+impl DataNotification {
+    /// Create a new DataNotification
+    ///
+    /// # Arguments
+    /// * `variable_name_specification` - Optional data source specification
+    /// * `data_value` - The data value being notified
+    pub fn new(
+        variable_name_specification: Option<VariableNameSpecification>,
+        data_value: DataObject,
+    ) -> Self {
+        Self {
+            variable_name_specification,
+            data_value,
+        }
+    }
+
+    /// Create a DataNotification with just the data value (no source specification)
+    pub fn with_value(data_value: DataObject) -> Self {
+        Self {
+            variable_name_specification: None,
+            data_value,
+        }
+    }
+
+    /// Create a DataNotification with COSEM attribute descriptor as the source
+    pub fn with_attribute(
+        cosem_attribute_descriptor: CosemAttributeDescriptor,
+        data_value: DataObject,
+    ) -> Self {
+        Self {
+            variable_name_specification: Some(VariableNameSpecification::CosemAttribute(
+                cosem_attribute_descriptor,
+            )),
+            data_value,
+        }
+    }
+
+    /// Encode to A-XDR format
+    ///
+    /// Encoding order (A-XDR, reverse order):
+    /// 1. data_value (DataObject)
+    /// 2. variable_name_specification (optional)
+    pub fn encode(&self) -> DlmsResult<Vec<u8>> {
+        let mut encoder = AxdrEncoder::new();
+
+        // Encode in reverse order
+        // 1. data_value (DataObject)
+        encoder.encode_data_object(&self.data_value)?;
+
+        // 2. variable_name_specification (optional)
+        encoder.encode_bool(self.variable_name_specification.is_some())?;
+        if let Some(ref spec) = self.variable_name_specification {
+            let spec_bytes = spec.encode()?;
+            encoder.encode_bytes(&spec_bytes)?;
+        }
+
+        Ok(encoder.into_bytes())
+    }
+
+    /// Decode from A-XDR format
+    pub fn decode(data: &[u8]) -> DlmsResult<Self> {
+        let mut decoder = AxdrDecoder::new(data);
+
+        // Decode in the same order as encode
+        // 1. data_value (DataObject)
+        let data_value = decoder.decode_data_object()?;
+
+        // 2. variable_name_specification (optional)
+        let has_spec = decoder.decode_bool()?;
+        let variable_name_specification = if has_spec {
+            let spec_bytes = decoder.decode_octet_string()?;
+            Some(VariableNameSpecification::decode(&spec_bytes)?)
+        } else {
+            None
+        };
+
+        Ok(Self {
+            variable_name_specification,
+            data_value,
+        })
+    }
+}
+
+/// Variable Name Specification
+///
+/// Identifies the source of data in a DataNotification PDU.
+///
+/// # Structure
+/// This is a CHOICE type that can specify the data source in different ways:
+/// - **CosemAttribute**: Specifies a COSEM attribute (for LN addressing)
+/// - **Structure**: For complex variable name structures (future extension)
+///
+/// # Why CHOICE Type?
+/// Different addressing modes and use cases require different ways to specify
+/// the data source. The CHOICE type allows flexibility while maintaining type safety.
+#[derive(Debug, Clone, PartialEq)]
+pub enum VariableNameSpecification {
+    /// COSEM attribute reference (Logical Name addressing)
+    CosemAttribute(CosemAttributeDescriptor),
+    /// Structure for complex variable name specifications (reserved for future use)
+    Structure(Vec<DataObject>),
+}
+
+impl VariableNameSpecification {
+    /// Get the tag value for this variant
+    #[must_use]
+    pub const fn tag(&self) -> u8 {
+        match self {
+            Self::CosemAttribute(_) => 1,
+            Self::Structure(_) => 2,
+        }
+    }
+
+    /// Encode to A-XDR format
+    ///
+    /// Encoding format for CHOICE:
+    /// - Tag (1 byte)
+    /// - Value (encoded according to variant)
+    pub fn encode(&self) -> DlmsResult<Vec<u8>> {
+        let mut encoder = AxdrEncoder::new();
+
+        // Encode tag
+        encoder.encode_u8(self.tag())?;
+
+        // Encode value
+        match self {
+            Self::CosemAttribute(attr) => {
+                let attr_bytes = attr.encode()?;
+                encoder.encode_bytes(&attr_bytes)?;
+            }
+            Self::Structure(items) => {
+                // Encode as array of DataObjects
+                for item in items {
+                    encoder.encode_data_object(item)?;
+                }
+            }
+        }
+
+        Ok(encoder.into_bytes())
+    }
+
+    /// Decode from A-XDR format
+    pub fn decode(data: &[u8]) -> DlmsResult<Self> {
+        if data.is_empty() {
+            return Err(DlmsError::InvalidData(
+                "Empty VariableNameSpecification".to_string(),
+            ));
+        }
+
+        let tag = data[0];
+        let mut decoder = AxdrDecoder::new(&data[1..]);
+
+        match tag {
+            1 => {
+                // CosemAttribute
+                let attr_bytes = decoder.decode_octet_string()?;
+                let attr = CosemAttributeDescriptor::decode(&attr_bytes)?;
+                Ok(Self::CosemAttribute(attr))
+            }
+            2 => {
+                // Structure - decode as array of DataObjects
+                let mut items = Vec::new();
+                // Decode until end of data
+                let data_slice = &data[1..];
+                while decoder.position() < data_slice.len() {
+                    let item = decoder.decode_data_object()?;
+                    items.push(item);
+                }
+                Ok(Self::Structure(items))
+            }
+            _ => Err(DlmsError::InvalidData(format!(
+                "Unknown VariableNameSpecification tag: {}",
+                tag
+            ))),
+        }
+    }
+}
+
+// ============================================================================
 // Access Request/Response PDU Implementation
 // ============================================================================
 
@@ -5072,5 +5292,432 @@ impl ExceptionResponse {
             state_error,
             service_error,
         })
+    }
+}
+
+// ============================================================================
+// ConfirmedServiceError and ServiceError
+// ============================================================================
+
+/// Service Error CHOICE type
+///
+/// This represents the detailed error information in a ConfirmedServiceError.
+/// Each variant represents a different category of error.
+///
+/// # ASN.1 Definition
+/// ```asn1
+/// ServiceError ::= CHOICE
+/// {
+///     application-reference [0] OBJECT IDENTIFIER,
+///     hardware-resource [1] NULL,
+///     vde-state-error [2] NULL,
+///     service [3] NULL,
+///     definition [4] NULL,
+///     access [5] NULL,
+///     initiate [6] NULL,
+///     load-data-set [7] NULL,
+///     task [9] INTEGER
+/// }
+/// ```
+#[derive(Debug, Clone, PartialEq)]
+pub enum ServiceError {
+    /// Application reference error - contains OID
+    ApplicationReference(Vec<u8>),
+    /// Hardware resource error
+    HardwareResource,
+    /// VDE state error
+    VdeStateError,
+    /// Service error
+    Service,
+    /// Definition error
+    Definition,
+    /// Access error
+    Access,
+    /// Initiate error
+    Initiate,
+    /// Load data set error
+    LoadDataSet,
+    /// Task error - contains task number
+    Task(i32),
+}
+
+impl ServiceError {
+    /// Get the tag value for this ServiceError variant
+    #[must_use]
+    pub const fn tag(&self) -> u8 {
+        match self {
+            Self::ApplicationReference(_) => 0,
+            Self::HardwareResource => 1,
+            Self::VdeStateError => 2,
+            Self::Service => 3,
+            Self::Definition => 4,
+            Self::Access => 5,
+            Self::Initiate => 6,
+            Self::LoadDataSet => 7,
+            Self::Task(_) => 9,
+        }
+    }
+
+    /// Get the name of this error type
+    #[must_use]
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::ApplicationReference(_) => "application-reference",
+            Self::HardwareResource => "hardware-resource",
+            Self::VdeStateError => "vde-state-error",
+            Self::Service => "service",
+            Self::Definition => "definition",
+            Self::Access => "access",
+            Self::Initiate => "initiate",
+            Self::LoadDataSet => "load-data-set",
+            Self::Task(_) => "task",
+        }
+    }
+
+    /// Encode to A-XDR format
+    ///
+    /// Encoding format for CHOICE:
+    /// - Tag (1 byte)
+    /// - Length/value depending on variant
+    pub fn encode(&self) -> DlmsResult<Vec<u8>> {
+        let mut encoder = AxdrEncoder::new();
+
+        match self {
+            Self::ApplicationReference(oid) => {
+                // Tag [0]
+                encoder.encode_u8(0)?;
+                // OID encoded as octet string
+                encoder.encode_octet_string(oid)?;
+            }
+            Self::HardwareResource | Self::VdeStateError | Self::Service
+                | Self::Definition | Self::Access | Self::Initiate | Self::LoadDataSet => {
+                // Tag only for NULL variants
+                encoder.encode_u8(self.tag())?;
+            }
+            Self::Task(task_num) => {
+                // Tag [9]
+                encoder.encode_u8(9)?;
+                // Task number as signed integer
+                encoder.encode_i32(*task_num)?;
+            }
+        }
+
+        Ok(encoder.into_bytes())
+    }
+
+    /// Decode from A-XDR format
+    pub fn decode(data: &[u8]) -> DlmsResult<Self> {
+        if data.is_empty() {
+            return Err(DlmsError::InvalidData("Empty ServiceError".to_string()));
+        }
+
+        let tag = data[0];
+        let mut decoder = AxdrDecoder::new(&data[1..]);
+
+        match tag {
+            0 => {
+                // Application-reference
+                let oid = decoder.decode_octet_string()?;
+                Ok(Self::ApplicationReference(oid))
+            }
+            1 => Ok(Self::HardwareResource),
+            2 => Ok(Self::VdeStateError),
+            3 => Ok(Self::Service),
+            4 => Ok(Self::Definition),
+            5 => Ok(Self::Access),
+            6 => Ok(Self::Initiate),
+            7 => Ok(Self::LoadDataSet),
+            9 => {
+                // Task error with integer value
+                let task_num = decoder.decode_i32()?;
+                Ok(Self::Task(task_num))
+            }
+            _ => Err(DlmsError::InvalidData(format!(
+                "Unknown ServiceError tag: {}",
+                tag
+            ))),
+        }
+    }
+}
+
+/// Confirmed Service Error PDU
+///
+/// This PDU is used to report errors in confirmed services. It provides
+/// detailed error diagnostics based on the service type.
+///
+/// # ASN.1 Definition
+/// ```asn1
+/// ConfirmedServiceError ::= CHOICE
+/// {
+///     initiateError [1] ServiceError,
+///     getStatus [2] ServiceError,
+///     getNameList [3] ServiceError,
+///     getVariableAttribute [4] ServiceError,
+///     read [5] ServiceError,
+///     write [6] ServiceError,
+///     getDataSetAttribute [7] ServiceError,
+///     getTIAttribute [8] ServiceError,
+///     changeScope [9] ServiceError,
+///     start [10] ServiceError,
+///     stop [11] ServiceError,
+///     resume [12] ServiceError,
+///     makeUsable [13] ServiceError,
+///     initiateLoad [14] ServiceError,
+///     loadSegment [15] ServiceError,
+///     terminateLoad [16] ServiceError,
+///     initiateUpLoad [17] ServiceError,
+///     upLoadSegment [18] ServiceError,
+///     terminateUpLoad [19] ServiceError
+/// }
+/// ```
+///
+/// # Difference from ExceptionResponse
+/// - ExceptionResponse: Protocol-level errors (malformed PDU, invalid state)
+/// - ConfirmedServiceError: Service-level errors with detailed diagnostics
+///
+/// # Usage
+/// This PDU is typically used in SN addressing mode and when detailed
+/// error reporting is required beyond simple error codes.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ConfirmedServiceError {
+    /// Error during initiation
+    InitiateError(ServiceError),
+    /// Error during get status operation
+    GetStatus(ServiceError),
+    /// Error during get name list operation
+    GetNameList(ServiceError),
+    /// Error during get variable attribute operation
+    GetVariableAttribute(ServiceError),
+    /// Error during read operation
+    Read(ServiceError),
+    /// Error during write operation
+    Write(ServiceError),
+    /// Error during get data set attribute operation
+    GetDataSetAttribute(ServiceError),
+    /// Error during get TI attribute operation
+    GetTIAttribute(ServiceError),
+    /// Error during change scope operation
+    ChangeScope(ServiceError),
+    /// Error during start operation
+    Start(ServiceError),
+    /// Error during stop operation
+    Stop(ServiceError),
+    /// Error during resume operation
+    Resume(ServiceError),
+    /// Error during make usable operation
+    MakeUsable(ServiceError),
+    /// Error during initiate load operation
+    InitiateLoad(ServiceError),
+    /// Error during load segment operation
+    LoadSegment(ServiceError),
+    /// Error during terminate load operation
+    TerminateLoad(ServiceError),
+    /// Error during initiate upload operation
+    InitiateUpload(ServiceError),
+    /// Error during upload segment operation
+    UploadSegment(ServiceError),
+    /// Error during terminate upload operation
+    TerminateUpload(ServiceError),
+}
+
+impl ConfirmedServiceError {
+    /// Get the tag value for this variant
+    #[must_use]
+    pub const fn tag(&self) -> u8 {
+        match self {
+            Self::InitiateError(_) => 1,
+            Self::GetStatus(_) => 2,
+            Self::GetNameList(_) => 3,
+            Self::GetVariableAttribute(_) => 4,
+            Self::Read(_) => 5,
+            Self::Write(_) => 6,
+            Self::GetDataSetAttribute(_) => 7,
+            Self::GetTIAttribute(_) => 8,
+            Self::ChangeScope(_) => 9,
+            Self::Start(_) => 10,
+            Self::Stop(_) => 11,
+            Self::Resume(_) => 12,
+            Self::MakeUsable(_) => 13,
+            Self::InitiateLoad(_) => 14,
+            Self::LoadSegment(_) => 15,
+            Self::TerminateLoad(_) => 16,
+            Self::InitiateUpload(_) => 17,
+            Self::UploadSegment(_) => 18,
+            Self::TerminateUpload(_) => 19,
+        }
+    }
+
+    /// Get the ServiceError contained in this variant
+    #[must_use]
+    pub fn service_error(&self) -> &ServiceError {
+        match self {
+            Self::InitiateError(e) => e,
+            Self::GetStatus(e) => e,
+            Self::GetNameList(e) => e,
+            Self::GetVariableAttribute(e) => e,
+            Self::Read(e) => e,
+            Self::Write(e) => e,
+            Self::GetDataSetAttribute(e) => e,
+            Self::GetTIAttribute(e) => e,
+            Self::ChangeScope(e) => e,
+            Self::Start(e) => e,
+            Self::Stop(e) => e,
+            Self::Resume(e) => e,
+            Self::MakeUsable(e) => e,
+            Self::InitiateLoad(e) => e,
+            Self::LoadSegment(e) => e,
+            Self::TerminateLoad(e) => e,
+            Self::InitiateUpload(e) => e,
+            Self::UploadSegment(e) => e,
+            Self::TerminateUpload(e) => e,
+        }
+    }
+
+    /// Create a read error
+    #[must_use]
+    pub fn read_error(error: ServiceError) -> Self {
+        Self::Read(error)
+    }
+
+    /// Create a write error
+    #[must_use]
+    pub fn write_error(error: ServiceError) -> Self {
+        Self::Write(error)
+    }
+
+    /// Create an access error (common for read/write)
+    #[must_use]
+    pub fn access_error() -> Self {
+        Self::Read(ServiceError::Access)
+    }
+
+    /// Encode to A-XDR format
+    ///
+    /// Encoding format for CHOICE:
+    /// - Choice tag (1 byte)
+    /// - ServiceError value (encoded according to variant)
+    pub fn encode(&self) -> DlmsResult<Vec<u8>> {
+        let mut encoder = AxdrEncoder::new();
+
+        // Encode choice tag
+        encoder.encode_u8(self.tag())?;
+
+        // Encode ServiceError value
+        let error_bytes = self.service_error().encode()?;
+        encoder.encode_bytes(&error_bytes)?;
+
+        Ok(encoder.into_bytes())
+    }
+
+    /// Decode from A-XDR format
+    pub fn decode(data: &[u8]) -> DlmsResult<Self> {
+        if data.is_empty() {
+            return Err(DlmsError::InvalidData(
+                "Empty ConfirmedServiceError".to_string(),
+            ));
+        }
+
+        let tag = data[0];
+        let service_error = ServiceError::decode(&data[1..])?;
+
+        match tag {
+            1 => Ok(Self::InitiateError(service_error)),
+            2 => Ok(Self::GetStatus(service_error)),
+            3 => Ok(Self::GetNameList(service_error)),
+            4 => Ok(Self::GetVariableAttribute(service_error)),
+            5 => Ok(Self::Read(service_error)),
+            6 => Ok(Self::Write(service_error)),
+            7 => Ok(Self::GetDataSetAttribute(service_error)),
+            8 => Ok(Self::GetTIAttribute(service_error)),
+            9 => Ok(Self::ChangeScope(service_error)),
+            10 => Ok(Self::Start(service_error)),
+            11 => Ok(Self::Stop(service_error)),
+            12 => Ok(Self::Resume(service_error)),
+            13 => Ok(Self::MakeUsable(service_error)),
+            14 => Ok(Self::InitiateLoad(service_error)),
+            15 => Ok(Self::LoadSegment(service_error)),
+            16 => Ok(Self::TerminateLoad(service_error)),
+            17 => Ok(Self::InitiateUpload(service_error)),
+            18 => Ok(Self::UploadSegment(service_error)),
+            19 => Ok(Self::TerminateUpload(service_error)),
+            _ => Err(DlmsError::InvalidData(format!(
+                "Unknown ConfirmedServiceError tag: {}",
+                tag
+            ))),
+        }
+    }
+
+    /// Get a human-readable description of this error
+    #[must_use]
+    pub fn description(&self) -> String {
+        format!(
+            "{}: {}",
+            self.operation_name(),
+            self.service_error().name()
+        )
+    }
+
+    /// Get the operation name for this error
+    #[must_use]
+    pub fn operation_name(&self) -> &'static str {
+        match self {
+            Self::InitiateError(_) => "initiate",
+            Self::GetStatus(_) => "getStatus",
+            Self::GetNameList(_) => "getNameList",
+            Self::GetVariableAttribute(_) => "getVariableAttribute",
+            Self::Read(_) => "read",
+            Self::Write(_) => "write",
+            Self::GetDataSetAttribute(_) => "getDataSetAttribute",
+            Self::GetTIAttribute(_) => "getTIAttribute",
+            Self::ChangeScope(_) => "changeScope",
+            Self::Start(_) => "start",
+            Self::Stop(_) => "stop",
+            Self::Resume(_) => "resume",
+            Self::MakeUsable(_) => "makeUsable",
+            Self::InitiateLoad(_) => "initiateLoad",
+            Self::LoadSegment(_) => "loadSegment",
+            Self::TerminateLoad(_) => "terminateLoad",
+            Self::InitiateUpload(_) => "initiateUpload",
+            Self::UploadSegment(_) => "uploadSegment",
+            Self::TerminateUpload(_) => "terminateUpload",
+        }
+    }
+}
+
+// Common ServiceError constructors
+impl ServiceError {
+    /// Create an application-reference error
+    pub fn application_reference(oid: Vec<u8>) -> Self {
+        Self::ApplicationReference(oid)
+    }
+
+    /// Create a hardware-resource error
+    pub fn hardware_resource() -> Self {
+        Self::HardwareResource
+    }
+
+    /// Create a service error
+    pub fn service() -> Self {
+        Self::Service
+    }
+
+    /// Create a definition error
+    pub fn definition() -> Self {
+        Self::Definition
+    }
+
+    /// Create an access error
+    pub fn access() -> Self {
+        Self::Access
+    }
+
+    /// Create an initiate error
+    pub fn initiate() -> Self {
+        Self::Initiate
+    }
+
+    /// Create a task error
+    pub fn task(task_num: i32) -> Self {
+        Self::Task(task_num)
     }
 }

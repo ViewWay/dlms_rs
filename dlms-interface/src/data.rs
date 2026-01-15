@@ -230,7 +230,7 @@ mod tests {
         let data = Data::new(obis, value);
 
         // Try to invoke a method (should fail - no methods)
-        let result = data.invoke_method(1, None).await;
+        let result = data.invoke_method(1, None, None).await;
         assert!(result.is_err());
     }
 }

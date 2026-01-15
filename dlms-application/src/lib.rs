@@ -61,8 +61,9 @@ pub use pdu::{
     GetRequest, GetResponse, GetRequestNormal, GetResponseNormal,
     SetRequest, SetResponse, SetRequestNormal, SetResponseNormal, SetDataResult,
     ActionRequest, ActionResponse, ActionRequestNormal, ActionResponseNormal, ActionResult,
-    EventNotification, AccessRequest, AccessResponse, AccessRequestSpecification, AccessResponseSpecification,
-    ExceptionResponse,
+    EventNotification, DataNotification, VariableNameSpecification,
+    AccessRequest, AccessResponse, AccessRequestSpecification, AccessResponseSpecification,
+    ExceptionResponse, ConfirmedServiceError, ServiceError,
     InvokeIdAndPriority, CosemAttributeDescriptor, CosemMethodDescriptor,
     SelectiveAccessDescriptor, GetDataResult,
 };

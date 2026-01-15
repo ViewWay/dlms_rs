@@ -160,14 +160,14 @@ pub trait AssociationEventListener: Send + Sync {
 /// A simple implementation of AssociationEventListener that uses a callback function.
 pub struct CallbackEventListener<F>
 where
-    F: Fn(AssociationEvent) + Send + Sync,
+    F: FnMut(AssociationEvent) + Send + Sync,
 {
-    callback: F,
+    callback: std::sync::Mutex<F>,
 }
 
 impl<F> CallbackEventListener<F>
 where
-    F: Fn(AssociationEvent) + Send + Sync,
+    F: FnMut(AssociationEvent) + Send + Sync,
 {
     /// Create a new callback-based event listener
     ///
@@ -175,16 +175,19 @@ where
     /// * `callback` - Function to call when an event occurs
     #[must_use]
     pub fn new(callback: F) -> Self {
-        Self { callback }
+        Self {
+            callback: std::sync::Mutex::new(callback),
+        }
     }
 }
 
 impl<F> AssociationEventListener for CallbackEventListener<F>
 where
-    F: Fn(AssociationEvent) + Send + Sync,
+    F: FnMut(AssociationEvent) + Send + Sync,
 {
     fn on_event(&self, event: AssociationEvent) {
-        (self.callback)(event);
+        let mut callback = self.callback.lock().unwrap();
+        (callback)(event);
     }
 }
 
