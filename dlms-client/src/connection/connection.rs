@@ -43,13 +43,7 @@
 //! conn.close().await?;
 //! ```
 
-use dlms_application::service::{GetService, SetService, ActionService, EventNotificationService};
-use dlms_application::pdu::{
-    InitiateRequest, InitiateResponse, GetRequest, GetResponse, SetRequest, SetResponse,
-    ActionRequest, ActionResponse, EventNotification, AccessRequest, AccessResponse,
-    InvokeIdAndPriority, CosemAttributeDescriptor, CosemMethodDescriptor,
-};
-use dlms_core::{DlmsError, DlmsResult, ObisCode, DataObject};
+use dlms_core::{DlmsResult, ObisCode, DataObject};
 use std::time::Duration;
 
 /// Connection trait for DLMS/COSEM client operations

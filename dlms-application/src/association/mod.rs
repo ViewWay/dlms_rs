@@ -56,7 +56,7 @@ use std::sync::Arc;
 use std::fmt;
 
 // Re-export for convenience in this module
-use crate::pdu::{InitiateRequest, InitiateResponse, Conformance};
+use crate::pdu::{InitiateRequest, InitiateResponse};
 use dlms_asn1::iso_acse::{AARQApdu, AAREApdu, RLRQApdu, RLREApdu, AssociateResult};
 use dlms_core::DlmsResult;
 

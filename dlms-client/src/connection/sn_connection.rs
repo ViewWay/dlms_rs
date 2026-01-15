@@ -308,15 +308,15 @@ impl Connection for SnConnection {
 
     async fn get_attribute(
         &mut self,
-        obis_code: dlms_core::ObisCode,
-        class_id: u16,
-        attribute_id: u8,
+        _obis_code: dlms_core::ObisCode,
+        _class_id: u16,
+        _attribute_id: u8,
     ) -> DlmsResult<DataObject> {
         // SN addressing uses base_name instead of OBIS code
         // For now, we'll use the base_name from a mapping, but typically
         // the user should provide the base_name directly
         // TODO: Add OBIS to base_name mapping support
-        
+
         // For SN addressing, we need the base_name (16-bit address)
         // This is a limitation - we should accept base_name directly
         // For now, return an error indicating SN addressing needs base_name
@@ -325,6 +325,54 @@ impl Connection for SnConnection {
         ))
     }
 
+    async fn set_attribute(
+        &mut self,
+        _obis_code: dlms_core::ObisCode,
+        _class_id: u16,
+        _attribute_id: u8,
+        _value: DataObject,
+    ) -> DlmsResult<()> {
+        // SN addressing uses base_name instead of OBIS code
+        Err(DlmsError::InvalidData(
+            "SN addressing requires base_name (16-bit address) instead of OBIS code. Use set_attribute_by_base_name() instead.".to_string(),
+        ))
+    }
+
+    async fn invoke_method(
+        &mut self,
+        _obis_code: dlms_core::ObisCode,
+        _class_id: u16,
+        _method_id: u8,
+        _parameters: Option<DataObject>,
+    ) -> DlmsResult<Option<DataObject>> {
+        // SN addressing uses base_name instead of OBIS code
+        Err(DlmsError::InvalidData(
+            "SN addressing requires base_name (16-bit address) instead of OBIS code. Use invoke_method_by_base_name() instead.".to_string(),
+        ))
+    }
+
+    async fn send_request(
+        &mut self,
+        request: &[u8],
+        timeout: Option<Duration>,
+    ) -> DlmsResult<Vec<u8>> {
+        if !self.is_open() {
+            return Err(DlmsError::Connection(std::io::Error::new(
+                std::io::ErrorKind::NotConnected,
+                "Connection is not open",
+            )));
+        }
+
+        // Send request through session layer
+        self.send_session_data(request).await?;
+
+        // Receive response through session layer
+        self.receive_session_data(timeout).await
+    }
+}
+
+/// SN-specific connection methods (short name addressing)
+impl SnConnection {
     /// Get an attribute value using short name addressing
     ///
     /// # Arguments
@@ -337,7 +385,7 @@ impl Connection for SnConnection {
     ///
     /// # Errors
     /// Returns error if the connection is not open, if the request fails, or if the response indicates an error
-    async fn get_attribute_by_base_name(
+    pub async fn get_attribute_by_base_name(
         &mut self,
         base_name: u16,
         class_id: u16,
@@ -382,19 +430,6 @@ impl Connection for SnConnection {
         GetService::process_response(&response)
     }
 
-    async fn set_attribute(
-        &mut self,
-        obis_code: dlms_core::ObisCode,
-        class_id: u16,
-        attribute_id: u8,
-        value: DataObject,
-    ) -> DlmsResult<()> {
-        // SN addressing requires base_name
-        Err(DlmsError::InvalidData(
-            "SN addressing requires base_name (16-bit address) instead of OBIS code. Use set_attribute_by_base_name() instead.".to_string(),
-        ))
-    }
-
     /// Set an attribute value using short name addressing
     ///
     /// # Arguments
@@ -408,7 +443,7 @@ impl Connection for SnConnection {
     ///
     /// # Errors
     /// Returns error if the connection is not open, if the request fails, or if the response indicates an error
-    async fn set_attribute_by_base_name(
+    pub async fn set_attribute_by_base_name(
         &mut self,
         base_name: u16,
         class_id: u16,
@@ -456,19 +491,6 @@ impl Connection for SnConnection {
         Ok(())
     }
 
-    async fn invoke_method(
-        &mut self,
-        obis_code: dlms_core::ObisCode,
-        class_id: u16,
-        method_id: u8,
-        parameters: Option<DataObject>,
-    ) -> DlmsResult<Option<DataObject>> {
-        // SN addressing requires base_name
-        Err(DlmsError::InvalidData(
-            "SN addressing requires base_name (16-bit address) instead of OBIS code. Use invoke_method_by_base_name() instead.".to_string(),
-        ))
-    }
-
     /// Invoke a method using short name addressing
     ///
     /// # Arguments
@@ -482,7 +504,7 @@ impl Connection for SnConnection {
     ///
     /// # Errors
     /// Returns error if the connection is not open, if the request fails, or if the response indicates an error
-    async fn invoke_method_by_base_name(
+    pub async fn invoke_method_by_base_name(
         &mut self,
         base_name: u16,
         class_id: u16,
@@ -526,24 +548,5 @@ impl Connection for SnConnection {
 
         // Process response using ActionService
         ActionService::process_response(&response)
-    }
-
-    async fn send_request(
-        &mut self,
-        request: &[u8],
-        timeout: Option<Duration>,
-    ) -> DlmsResult<Vec<u8>> {
-        if !self.is_open() {
-            return Err(DlmsError::Connection(std::io::Error::new(
-                std::io::ErrorKind::NotConnected,
-                "Connection is not open",
-            )));
-        }
-
-        // Send request through session layer
-        self.send_session_data(request).await?;
-
-        // Receive response through session layer
-        self.receive_session_data(timeout).await
     }
 }

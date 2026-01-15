@@ -48,7 +48,7 @@
 //! - [ ] 属性定义宏
 //! - [ ] 方法定义宏
 
-use dlms_core::{DlmsError, DlmsResult, ObisCode, DataObject};
+use dlms_core::{DlmsResult, ObisCode, DataObject};
 use dlms_application::pdu::SelectiveAccessDescriptor;
 use async_trait::async_trait;
 

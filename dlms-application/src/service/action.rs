@@ -17,9 +17,8 @@
 //!   in multiple stages
 
 use crate::pdu::{
-    ActionRequest, ActionRequestNormal, ActionResponse, ActionResponseNormal, ActionResult,
+    ActionRequest, ActionResponse, ActionResult,
     CosemMethodDescriptor, InvokeIdAndPriority,
-    action_result,
 };
 use dlms_core::{DlmsError, DlmsResult, DataObject};
 

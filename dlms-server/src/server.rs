@@ -10,15 +10,12 @@ use dlms_application::pdu::{
     CosemAttributeDescriptor, CosemMethodDescriptor, GetDataResult, SetDataResult, ActionResult,
     InvokeIdAndPriority, Conformance,
 };
-use dlms_core::{DlmsError, DlmsResult, ObisCode, DataObject};
+use dlms_core::{DlmsError, DlmsResult, ObisCode};
 use dlms_security::SecuritySuite;
 use dlms_interface::CosemObject;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-
-// Re-export CosemObject for convenience
-pub use dlms_interface::CosemObject;
 
 /// Association context
 ///
@@ -220,15 +217,15 @@ impl DlmsServer {
         
         // Register association
         self.register_association(client_sap, context.clone()).await;
-        
+
         // Create response
         let response = InitiateResponse::new(
             self.config.dlms_version,
             context.conformance.clone(),
             context.max_pdu_size,
-            None, // server_max_received_pdu_size (optional)
+            0x0007, // vaa_name: standard VAA name for DLMS
         )?;
-        
+
         Ok(response)
     }
     
@@ -278,26 +275,24 @@ impl DlmsServer {
                     CosemAttributeDescriptor::ShortName { reference, .. } => reference.id,
                 };
                 
-                let value = object.get_attribute(attribute_id, selective_access.as_ref()).await?;
-                
+                let value = object.get_attribute(attribute_id, selective_access.as_deref()).await?;
+
                 // Create response
                 let invoke_id = normal.invoke_id_and_priority().invoke_id();
                 let result = GetDataResult::new_data(value);
-                let response = GetResponse::new_normal(
-                    InvokeIdAndPriority::new(invoke_id, false)?,
-                    result,
-                )?;
-                
+                let invoke_id_and_priority = InvokeIdAndPriority::new(invoke_id, false)?;
+                let response = GetResponse::new_normal(invoke_id_and_priority, result);
+
                 Ok(response)
             }
-            GetRequest::Next(_) => {
+            GetRequest::Next { .. } => {
                 // Get Request Next - for block transfer
                 // TODO: Implement block transfer support
                 Err(DlmsError::InvalidData(
                     "Get Request Next not yet implemented".to_string(),
                 ))
             }
-            GetRequest::WithList(_) => {
+            GetRequest::WithList { .. } => {
                 // Get Request With List - for multiple attributes
                 // TODO: Implement WithList support
                 Err(DlmsError::InvalidData(
@@ -353,16 +348,14 @@ impl DlmsServer {
                     CosemAttributeDescriptor::ShortName { reference, .. } => reference.id,
                 };
                 
-                object.set_attribute(attribute_id, value.clone(), selective_access.as_ref()).await?;
-                
+                object.set_attribute(attribute_id, value.clone(), selective_access.as_deref()).await?;
+
                 // Create response
                 let invoke_id = normal.invoke_id_and_priority().invoke_id();
                 let result = SetDataResult::new_success();
-                let response = SetResponse::new_normal(
-                    InvokeIdAndPriority::new(invoke_id, false)?,
-                    result,
-                )?;
-                
+                let invoke_id_and_priority = InvokeIdAndPriority::new(invoke_id, false)?;
+                let response = SetResponse::new_normal(invoke_id_and_priority, result);
+
                 Ok(response)
             }
         }
@@ -412,9 +405,9 @@ impl DlmsServer {
                     CosemMethodDescriptor::LogicalName(ln_ref) => ln_ref.id,
                     CosemMethodDescriptor::ShortName { reference, .. } => reference.id,
                 };
-                
-                let return_value = object.invoke_method(method_id, parameters.clone()).await?;
-                
+
+                let return_value = object.invoke_method(method_id, parameters.cloned(), None).await?;
+
                 // Create response
                 let invoke_id = normal.invoke_id_and_priority().invoke_id();
                 let result = if let Some(value) = return_value {
@@ -425,8 +418,8 @@ impl DlmsServer {
                 let response = ActionResponse::new_normal(
                     InvokeIdAndPriority::new(invoke_id, false)?,
                     result,
-                )?;
-                
+                );
+
                 Ok(response)
             }
         }
@@ -470,14 +463,14 @@ impl DlmsServer {
                         CosemAttributeDescriptor::ShortName { .. } => {
                             // Return error result for this item
                             access_response_list.push(AccessResponseSpecification::Get(
-                                GetDataResult::new_data_access_result(
+                                GetDataResult::new_standard_error(
                                     dlms_application::pdu::data_access_result::HARDWARE_FAULT,
                                 ),
                             ));
                             continue;
                         }
                     };
-                    
+
                     // Get attribute
                     match self.find_object(&obis).await {
                         Some(object) => {
@@ -485,7 +478,7 @@ impl DlmsServer {
                                 CosemAttributeDescriptor::LogicalName(ln_ref) => ln_ref.id,
                                 CosemAttributeDescriptor::ShortName { reference, .. } => reference.id,
                             };
-                            
+
                             match object.get_attribute(attribute_id, access_selection.as_ref()).await {
                                 Ok(value) => {
                                     AccessResponseSpecification::Get(
@@ -496,7 +489,7 @@ impl DlmsServer {
                                     // Convert error to data access result
                                     // For now, use hardware fault as generic error
                                     AccessResponseSpecification::Get(
-                                        GetDataResult::new_data_access_result(
+                                        GetDataResult::new_standard_error(
                                             dlms_application::pdu::data_access_result::HARDWARE_FAULT,
                                         ),
                                     )
@@ -505,7 +498,7 @@ impl DlmsServer {
                         }
                         None => {
                             AccessResponseSpecification::Get(
-                                GetDataResult::new_data_access_result(
+                                GetDataResult::new_standard_error(
                                     dlms_application::pdu::data_access_result::OBJECT_UNAVAILABLE,
                                 ),
                             )
@@ -519,14 +512,14 @@ impl DlmsServer {
                         CosemAttributeDescriptor::ShortName { .. } => {
                             // Return error result for this item
                             access_response_list.push(AccessResponseSpecification::Set(
-                                SetDataResult::new_data_access_result(
+                                SetDataResult::new_standard_error(
                                     dlms_application::pdu::data_access_result::HARDWARE_FAULT,
                                 ),
                             ));
                             continue;
                         }
                     };
-                    
+
                     // Set attribute
                     match self.find_object(&obis).await {
                         Some(object) => {
@@ -534,7 +527,7 @@ impl DlmsServer {
                                 CosemAttributeDescriptor::LogicalName(ln_ref) => ln_ref.id,
                                 CosemAttributeDescriptor::ShortName { reference, .. } => reference.id,
                             };
-                            
+
                             match object.set_attribute(attribute_id, value.clone(), access_selection.as_ref()).await {
                                 Ok(_) => {
                                     AccessResponseSpecification::Set(
@@ -544,7 +537,7 @@ impl DlmsServer {
                                 Err(_) => {
                                     // Convert error to data access result
                                     AccessResponseSpecification::Set(
-                                        SetDataResult::new_data_access_result(
+                                        SetDataResult::new_standard_error(
                                             dlms_application::pdu::data_access_result::HARDWARE_FAULT,
                                         ),
                                     )
@@ -553,7 +546,7 @@ impl DlmsServer {
                         }
                         None => {
                             AccessResponseSpecification::Set(
-                                SetDataResult::new_data_access_result(
+                                SetDataResult::new_standard_error(
                                     dlms_application::pdu::data_access_result::OBJECT_UNAVAILABLE,
                                 ),
                             )
@@ -574,7 +567,7 @@ impl DlmsServer {
                             continue;
                         }
                     };
-                    
+
                     // Invoke method
                     match self.find_object(&obis).await {
                         Some(object) => {
@@ -582,8 +575,8 @@ impl DlmsServer {
                                 CosemMethodDescriptor::LogicalName(ln_ref) => ln_ref.id,
                                 CosemMethodDescriptor::ShortName { reference, .. } => reference.id,
                             };
-                            
-                            match object.invoke_method(method_id, method_invocation_parameters.clone()).await {
+
+                            match object.invoke_method(method_id, method_invocation_parameters.clone(), None).await {
                                 Ok(return_value) => {
                                     if let Some(value) = return_value {
                                         AccessResponseSpecification::Action(

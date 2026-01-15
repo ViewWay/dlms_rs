@@ -390,6 +390,7 @@ impl Default for SegmentedFrameReassembler {
 /// - Frame sending and receiving
 /// - Segmented frame reassembly
 /// - Connection termination (DISC/DM/UA)
+#[derive(Debug)]
 pub struct HdlcConnection<T: TransportLayer> {
     transport: T,
     local_address: HdlcAddress,

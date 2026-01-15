@@ -33,7 +33,7 @@
 
 use dlms_core::{DlmsError, DlmsResult};
 use dlms_asn1::{AxdrEncoder, AxdrDecoder};
-use crate::pdu::{InvokeIdAndPriority, DataObject, GetDataResult, SetDataResult, ActionResult};
+use crate::pdu::{InvokeIdAndPriority, DataObject, GetDataResult, SetDataResult};
 
 /// SN PDU tag values
 ///

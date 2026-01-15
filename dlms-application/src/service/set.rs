@@ -19,9 +19,8 @@
 //!   caching encoded PDUs or using a connection pool.
 
 use crate::pdu::{
-    SetRequest, SetRequestNormal, SetResponse, SetResponseNormal, SetDataResult,
+    SetRequest, SetResponse, SetDataResult,
     CosemAttributeDescriptor, SelectiveAccessDescriptor, InvokeIdAndPriority,
-    data_access_result,
 };
 use dlms_core::{DlmsError, DlmsResult, DataObject};
 

@@ -3,10 +3,35 @@
 use crate::error::{DlmsError, DlmsResult};
 use crate::stream::{StreamAccessor, TransportLayer};
 use async_trait::async_trait;
+use std::fmt;
 use std::net::SocketAddr;
+use std::ops::{Deref, DerefMut};
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
+
+/// Wrapper for TcpStream that implements Debug
+struct DebugTcpStream(TcpStream);
+
+impl fmt::Debug for DebugTcpStream {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TcpStream").finish()
+    }
+}
+
+impl Deref for DebugTcpStream {
+    type Target = TcpStream;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for DebugTcpStream {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
 
 /// TCP transport layer settings
 #[derive(Debug, Clone)]
@@ -34,8 +59,9 @@ impl TcpSettings {
 }
 
 /// TCP transport layer implementation
+#[derive(Debug)]
 pub struct TcpTransport {
-    stream: Option<TcpStream>,
+    stream: Option<DebugTcpStream>,
     settings: TcpSettings,
     closed: bool,
 }
@@ -56,6 +82,22 @@ impl TcpTransport {
             DlmsError::InvalidData(format!("Invalid TCP address: {}", e))
         })?;
         Ok(Self::new(TcpSettings::new(addr)))
+    }
+
+    /// Create TCP transport from an already-connected TcpStream (for server use)
+    ///
+    /// # Arguments
+    /// * `stream` - The already-connected TCP stream
+    /// * `timeout` - Optional read/write timeout
+    pub fn from_connected_stream(stream: TcpStream, timeout: Option<Duration>) -> Self {
+        Self {
+            stream: Some(DebugTcpStream(stream)),
+            settings: TcpSettings {
+                address: SocketAddr::new(std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED), 0),
+                timeout,
+            },
+            closed: false,
+        }
     }
 }
 
@@ -81,7 +123,7 @@ impl TransportLayer for TcpTransport {
                 .map_err(|e| DlmsError::Connection(e))?
         };
 
-        self.stream = Some(stream);
+        self.stream = Some(DebugTcpStream(stream));
         self.closed = false;
         Ok(())
     }

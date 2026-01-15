@@ -4,7 +4,31 @@ use crate::error::{DlmsError, DlmsResult};
 use crate::hdlc::frame::HdlcFrame;
 use crate::hdlc::address::HdlcAddress;
 use std::collections::VecDeque;
+use std::fmt;
 use tokio::sync::mpsc;
+
+/// Wrapper for mpsc::Receiver that implements Debug
+struct DebugReceiver<T>(mpsc::Receiver<T>);
+
+impl<T> fmt::Debug for DebugReceiver<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Receiver").finish()
+    }
+}
+
+impl<T> std::ops::Deref for DebugReceiver<T> {
+    type Target = mpsc::Receiver<T>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<T> std::ops::DerefMut for DebugReceiver<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
 
 /// HDLC message queue
 #[derive(Debug)]
@@ -48,10 +72,11 @@ impl Default for HdlcMessageQueue {
 }
 
 /// HDLC dispatcher for routing frames
+#[derive(Debug)]
 pub struct HdlcDispatcher {
     local_address: HdlcAddress,
     message_queue: HdlcMessageQueue,
-    frame_receiver: Option<mpsc::Receiver<HdlcFrame>>,
+    frame_receiver: Option<DebugReceiver<HdlcFrame>>,
 }
 
 impl HdlcDispatcher {
@@ -66,7 +91,7 @@ impl HdlcDispatcher {
 
     /// Set the frame receiver channel
     pub fn set_receiver(&mut self, receiver: mpsc::Receiver<HdlcFrame>) {
-        self.frame_receiver = Some(receiver);
+        self.frame_receiver = Some(DebugReceiver(receiver));
     }
 
     /// Process incoming frames

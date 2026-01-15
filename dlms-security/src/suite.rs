@@ -352,6 +352,19 @@ impl SecuritySuite {
     }
 }
 
+impl Default for SecuritySuite {
+    fn default() -> Self {
+        Self {
+            global_unicast_encryption_key: None,
+            authentication_key: None,
+            password: None,
+            encryption_mechanism: EncryptionMechanism::None,
+            authentication_mechanism: AuthenticationMechanism::None,
+            security_policy: SecurityPolicy::Nothing,
+        }
+    }
+}
+
 impl fmt::Display for SecuritySuite {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(

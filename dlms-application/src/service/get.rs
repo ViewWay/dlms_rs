@@ -29,9 +29,8 @@
 //! ```
 
 use crate::pdu::{
-    GetRequest, GetRequestNormal, GetResponse, GetResponseNormal, GetDataResult,
+    GetRequest, GetResponse, GetDataResult,
     CosemAttributeDescriptor, SelectiveAccessDescriptor, InvokeIdAndPriority,
-    data_access_result,
 };
 use dlms_core::{DlmsError, DlmsResult, DataObject};
 

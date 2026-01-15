@@ -315,7 +315,7 @@ impl ProtocolIdentification {
     pub fn describe_capabilities(initiate_response: &InitiateResponse) -> DlmsResult<String> {
         let info = Self::identify(initiate_response)?;
         
-        let mut description = format!(
+        let description = format!(
             "DLMS/COSEM Protocol Information:\n\
              - DLMS Version: {}\n\
              - Max PDU Size: {} bytes\n\

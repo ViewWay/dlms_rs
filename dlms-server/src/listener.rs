@@ -2,19 +2,19 @@
 //!
 //! This module provides server-side connection listening and acceptance functionality.
 
-use crate::server::{DlmsServer, AssociationContext};
+use crate::server::DlmsServer;
 use dlms_application::pdu::{
-    InitiateRequest, InitiateResponse,
-    GetRequest, GetResponse,
-    SetRequest, SetResponse,
-    ActionRequest, ActionResponse,
-    AccessRequest, AccessResponse,
+    InitiateRequest,
+    GetRequest,
+    SetRequest,
+    ActionRequest,
+    AccessRequest,
     ExceptionResponse,
 };
 use dlms_core::{DlmsError, DlmsResult};
 use dlms_session::hdlc::{HdlcConnection, HdlcAddress};
 use dlms_session::wrapper::WrapperSession;
-use dlms_transport::{TcpTransport, TcpSettings, TransportLayer};
+use dlms_transport::TcpTransport;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
@@ -75,7 +75,7 @@ impl ServerListener {
         Self {
             server: Arc::new(RwLock::new(server)),
             address,
-            hdlc_local_address: HdlcAddress::new(0x01, 0x00), // Default server address
+            hdlc_local_address: HdlcAddress::new(0x01).unwrap(), // Default server address
             use_hdlc: true,
         }
     }
@@ -151,7 +151,7 @@ impl ServerListener {
     fn extract_client_sap(peer_addr: &SocketAddr) -> u16 {
         // Use port number as SAP (simplified)
         // In real implementation, this should come from HDLC address negotiation
-        (peer_addr.port() % 65536) as u16
+        peer_addr.port()
     }
 }
 
@@ -181,13 +181,12 @@ impl ClientHandler {
         stream: TcpStream,
         hdlc_local_address: HdlcAddress,
     ) -> DlmsResult<()> {
-        // Create transport
-        let tcp_settings = TcpSettings {
-            read_timeout: Some(std::time::Duration::from_secs(30)),
-            write_timeout: Some(std::time::Duration::from_secs(30)),
-        };
-        let transport = TcpTransport::new(stream, tcp_settings);
-        
+        // Create transport from already-connected stream
+        let transport = TcpTransport::from_connected_stream(
+            stream,
+            Some(std::time::Duration::from_secs(30)),
+        );
+
         if self.use_hdlc {
             self.handle_hdlc_connection(transport, hdlc_local_address).await
         } else {
@@ -204,7 +203,7 @@ impl ClientHandler {
         // Create HDLC connection in server mode
         // Note: Remote address will be determined from SNRM/UA handshake
         // Server connections use LLC_RESPONSE header for responses
-        let remote_address = HdlcAddress::new(0x10, 0x00); // Default client address (will be updated from SNRM)
+        let remote_address = HdlcAddress::new(0x10).unwrap(); // Default client address (will be updated from SNRM)
         let mut hdlc_conn = HdlcConnection::new_server(transport, local_address, remote_address);
         
         // Wait for SNRM frame and respond with UA (server-side handshake)
@@ -228,16 +227,16 @@ impl ClientHandler {
                     break;
                 }
             };
-            
+
             // Parse and process request
-            match self.parse_and_route_request_hdlc(&data, hdlc_conn).await {
+            match self.parse_and_route_request_hdlc(&data, &mut hdlc_conn).await {
                 Ok(_) => {
                     // Request processed successfully
                 }
                 Err(e) => {
                     log::error!("Error processing request: {}", e);
                     // Send exception response if possible
-                    if let Err(send_err) = self.send_exception_response_hdlc(hdlc_conn, e).await {
+                    if let Err(send_err) = self.send_exception_response_hdlc(&mut hdlc_conn, e).await {
                         log::error!("Failed to send exception response: {}", send_err);
                     }
                     // Continue processing other requests
@@ -247,7 +246,7 @@ impl ClientHandler {
         
         // Clean up association
         {
-            let mut server = self.server.write().await;
+            let server = self.server.write().await;
             server.release_association(self.client_sap).await;
         }
         
@@ -268,23 +267,23 @@ impl ClientHandler {
         // Process requests in a loop
         loop {
             // Receive data from client
-            let data = match wrapper.receive().await {
+            let data = match wrapper.receive(Some(std::time::Duration::from_secs(30))).await {
                 Ok(data) => data,
                 Err(e) => {
                     log::error!("Error receiving data: {}", e);
                     break;
                 }
             };
-            
+
             // Parse and process request
-            match self.parse_and_route_request_wrapper(&data, wrapper).await {
+            match self.parse_and_route_request_wrapper(&data, &mut wrapper).await {
                 Ok(_) => {
                     // Request processed successfully
                 }
                 Err(e) => {
                     log::error!("Error processing request: {}", e);
                     // Send exception response if possible
-                    if let Err(send_err) = self.send_exception_response_wrapper(wrapper, e).await {
+                    if let Err(send_err) = self.send_exception_response_wrapper(&mut wrapper, e).await {
                         log::error!("Failed to send exception response: {}", send_err);
                     }
                     // Continue processing other requests
@@ -294,7 +293,7 @@ impl ClientHandler {
         
         // Clean up association
         {
-            let mut server = self.server.write().await;
+            let server = self.server.write().await;
             server.release_association(self.client_sap).await;
         }
         
@@ -329,7 +328,7 @@ impl ClientHandler {
         wrapper: &mut WrapperSession<TcpTransport>,
     ) -> DlmsResult<()> {
         // Receive Initiate Request
-        let data = wrapper.receive().await?;
+        let data = wrapper.receive(Some(std::time::Duration::from_secs(10))).await?;
         
         // Parse Initiate Request
         let request = InitiateRequest::decode(&data)?;
@@ -509,39 +508,45 @@ impl ClientHandler {
     async fn send_exception_response_hdlc(
         &self,
         hdlc_conn: &mut HdlcConnection<TcpTransport>,
-        error: DlmsError,
+        _error: DlmsError,
     ) -> DlmsResult<()> {
         // Convert error to exception response
         // For now, use a generic state error
+        let invoke_id = dlms_application::pdu::InvokeIdAndPriority::new(0, false)
+            .unwrap_or_else(|_| dlms_application::pdu::InvokeIdAndPriority::new(1, false).unwrap());
         let exception_response = ExceptionResponse::new(
-            dlms_application::pdu::ExceptionState::StateError,
-            dlms_application::pdu::ExceptionServiceError::Other,
-        )?;
-        
+            invoke_id,
+            None, // state_error
+            250,  // service_error: Other reason (OTHER_REASON constant)
+        );
+
         let response_data = exception_response.encode()?;
         hdlc_conn.send_information(response_data, false).await?;
-        
+
         Ok(())
     }
-    
+
     /// Send exception response for Wrapper connection
     ///
     /// Similar to send_exception_response_hdlc but uses WrapperSession.
     async fn send_exception_response_wrapper(
         &self,
         wrapper: &mut WrapperSession<TcpTransport>,
-        error: DlmsError,
+        _error: DlmsError,
     ) -> DlmsResult<()> {
         // Convert error to exception response
         // For now, use a generic state error
+        let invoke_id = dlms_application::pdu::InvokeIdAndPriority::new(0, false)
+            .unwrap_or_else(|_| dlms_application::pdu::InvokeIdAndPriority::new(1, false).unwrap());
         let exception_response = ExceptionResponse::new(
-            dlms_application::pdu::ExceptionState::StateError,
-            dlms_application::pdu::ExceptionServiceError::Other,
-        )?;
-        
+            invoke_id,
+            None, // state_error
+            250,  // service_error: Other reason (OTHER_REASON constant)
+        );
+
         let response_data = exception_response.encode()?;
         wrapper.send(&response_data).await?;
-        
+
         Ok(())
     }
 }

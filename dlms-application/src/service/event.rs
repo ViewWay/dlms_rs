@@ -31,7 +31,7 @@
 //! ```
 
 use crate::pdu::{EventNotification, CosemAttributeDescriptor};
-use dlms_core::{DlmsError, DlmsResult, DataObject, ObisCode};
+use dlms_core::{DlmsResult, DataObject, ObisCode};
 
 /// Event handler function type
 ///

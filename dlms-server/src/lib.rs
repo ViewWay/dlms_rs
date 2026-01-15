@@ -46,5 +46,6 @@
 pub mod server;
 pub mod listener;
 
-pub use server::{DlmsServer, ServerConfig, CosemObject, AssociationContext};
+pub use server::{DlmsServer, ServerConfig, AssociationContext};
 pub use listener::ServerListener;
+pub use dlms_interface::CosemObject;

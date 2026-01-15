@@ -57,10 +57,6 @@
 //! ```
 
 use dlms_core::{DlmsError, DlmsResult};
-use crate::pdu::{
-    GetRequest, GetResponse, SetRequest, SetResponse,
-    ActionRequest, ActionResponse, EventNotification, AccessRequest, AccessResponse,
-};
 
 /// Security control byte for encrypted PDUs
 ///

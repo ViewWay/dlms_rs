@@ -3,9 +3,34 @@
 use crate::error::{DlmsError, DlmsResult};
 use crate::stream::{StreamAccessor, TransportLayer};
 use async_trait::async_trait;
+use std::fmt;
+use std::ops::{Deref, DerefMut};
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio_serial::{SerialPortBuilderExt, SerialStream};
+
+/// Wrapper for SerialStream that implements Debug
+struct DebugSerialStream(SerialStream);
+
+impl fmt::Debug for DebugSerialStream {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SerialStream").finish()
+    }
+}
+
+impl Deref for DebugSerialStream {
+    type Target = SerialStream;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for DebugSerialStream {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
 
 /// Serial port transport layer settings
 #[derive(Debug, Clone)]
@@ -48,8 +73,9 @@ impl SerialSettings {
 }
 
 /// Serial port transport layer implementation
+#[derive(Debug)]
 pub struct SerialTransport {
-    stream: Option<SerialStream>,
+    stream: Option<DebugSerialStream>,
     settings: SerialSettings,
     closed: bool,
 }
@@ -92,7 +118,7 @@ impl TransportLayer for SerialTransport {
                 format!("Failed to open serial port: {}", e),
             )))?;
 
-        self.stream = Some(stream);
+        self.stream = Some(DebugSerialStream(stream));
         self.closed = false;
         Ok(())
     }

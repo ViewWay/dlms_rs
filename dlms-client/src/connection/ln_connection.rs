@@ -33,7 +33,7 @@ use dlms_application::service::{GetService, SetService, ActionService};
 use dlms_application::pdu::{
     InitiateRequest, InitiateResponse, GetRequest, GetResponse, SetRequest, SetResponse,
     ActionRequest, ActionResponse, CosemAttributeDescriptor, CosemMethodDescriptor,
-    InvokeIdAndPriority, Conformance, DLMS_VERSION_6,
+    InvokeIdAndPriority, Conformance,
 };
 use dlms_application::addressing::LogicalNameReference;
 use dlms_core::{DlmsError, DlmsResult, ObisCode, DataObject};

@@ -46,7 +46,7 @@
 use dlms_core::{DlmsError, DlmsResult, ObisCode};
 use dlms_core::datatypes::{BitString, CosemDateFormat};
 use dlms_asn1::{AxdrDecoder, AxdrEncoder, LengthEncoding};
-use crate::addressing::{LogicalNameReference, ShortNameReference, AccessSelector};
+use crate::addressing::{LogicalNameReference, ShortNameReference};
 
 // Re-export DataObject for convenience
 pub use dlms_core::datatypes::DataObject;
@@ -249,7 +249,7 @@ impl Conformance {
     /// # Reference
     /// DLMS Green Book 8.3 - COSEMpdu ASN.1 definition
     pub fn decode_ber(data: &[u8]) -> DlmsResult<Self> {
-        use dlms_asn1::ber::{BerDecoder, BerTag, BerTagClass};
+        use dlms_asn1::ber::{BerDecoder, BerTagClass};
         
         let mut decoder = BerDecoder::new(data);
         
@@ -1923,7 +1923,7 @@ impl GetRequestNormal {
     /// Consider modifying decode methods to return (value, bytes_consumed) tuples
     /// to avoid the need for re-encoding to calculate consumed bytes.
     pub fn decode(data: &[u8]) -> DlmsResult<Self> {
-        let mut decoder = AxdrDecoder::new(data);
+        let _decoder = AxdrDecoder::new(data);
         let mut pos = 0;
 
         // Decode in reverse order (A-XDR convention)

@@ -183,6 +183,7 @@ impl WrapperPdu {
 }
 
 /// Wrapper session layer
+#[derive(Debug)]
 pub struct WrapperSession<T: TransportLayer> {
     transport: T,
     client_id: u16,
