@@ -15,5 +15,6 @@ path = "src/lib.rs"
 dlms-core = { path = "../dlms-core" }
 dlms-asn1 = { path = "../dlms-asn1" }
 dlms-application = { path = "../dlms-application" }
+dlms-security = { path = "../dlms-security" }
 tokio = { workspace = true }
 async-trait = { workspace = true }
