@@ -109,10 +109,8 @@ impl AxdrEncoder {
             }
             CompactArray(ca) => {
                 self.encode_tag(AxdrTag::CompactArray)?;
-                // TODO: Implement compact array encoding
-                return Err(DlmsError::InvalidData(
-                    "CompactArray encoding not yet implemented".to_string(),
-                ));
+                let encoded = ca.encode()?;
+                self.encode_octet_string(&encoded)?;
             }
             Date(d) => {
                 self.encode_tag(AxdrTag::Date)?;
@@ -364,5 +362,23 @@ mod tests {
         encoder.encode_tag(AxdrTag::Integer32).unwrap();
         encoder.encode_i32(0x12345678).unwrap();
         assert_eq!(encoder.as_bytes(), &[0x05, 0x12, 0x34, 0x56, 0x78]);
+    }
+
+    #[test]
+    fn test_encode_float32() {
+        let mut encoder = AxdrEncoder::new();
+        encoder.encode_tag(AxdrTag::Float32).unwrap();
+        encoder.encode_f32(1.0).unwrap();
+        // IEEE 754: 1.0 = 0x3F800000, tag for Float32 is 0x17
+        assert_eq!(encoder.as_bytes(), &[0x17, 0x3F, 0x80, 0x00, 0x00]);
+    }
+
+    #[test]
+    fn test_encode_float64() {
+        let mut encoder = AxdrEncoder::new();
+        encoder.encode_tag(AxdrTag::Float64).unwrap();
+        encoder.encode_f64(1.0).unwrap();
+        // IEEE 754: 1.0 = 0x3FF0000000000000, tag for Float64 is 0x18
+        assert_eq!(encoder.as_bytes(), &[0x18, 0x3F, 0xF0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
     }
 }

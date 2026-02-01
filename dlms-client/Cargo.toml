@@ -14,6 +14,7 @@ path = "src/lib.rs"
 [dependencies]
 tokio = { workspace = true }
 async-trait = { workspace = true }
+futures = { workspace = true }
 dlms-core = { path = "../dlms-core" }
 dlms-transport = { path = "../dlms-transport" }
 dlms-session = { path = "../dlms-session" }

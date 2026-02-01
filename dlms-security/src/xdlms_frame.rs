@@ -227,7 +227,7 @@ impl EncryptedFrameParser {
         let security_control = SecurityControl::from_byte(security_control_byte);
         pos += 1;
 
-        let authenticated = security_control.is_authenticated();
+        let _authenticated = security_control.is_authenticated();
         let encrypted = security_control.is_encrypted();
         let include_system_title = security_control.is_key_set();
 

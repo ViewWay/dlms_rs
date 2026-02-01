@@ -263,7 +263,6 @@ impl Default for EventNotificationService {
 mod tests {
     use super::*;
     use crate::pdu::CosemAttributeDescriptor;
-    use dlms_core::datatypes::CosemDateTime;
 
     #[test]
     fn test_event_notification_service_new() {

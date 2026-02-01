@@ -577,7 +577,6 @@ mod tests {
 
     #[test]
     fn test_access_selector_date_range() {
-        use dlms_core::datatypes::ClockStatus;
         
         let from_date = CosemDateTime::new(2024, 1, 1, 0, 0, 0, 0, &[]).unwrap();
         let to_date = CosemDateTime::new(2024, 12, 31, 23, 59, 59, 0, &[]).unwrap();
@@ -617,8 +616,6 @@ mod tests {
 
     #[test]
     fn test_access_selector_to_selective_access_descriptor() {
-        use crate::pdu::SelectiveAccessDescriptor;
-        
         let selector = AccessSelector::entry_index(5, 10);
         let descriptor = selector.to_selective_access_descriptor().unwrap().unwrap();
         

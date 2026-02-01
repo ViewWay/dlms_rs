@@ -2,7 +2,6 @@
 
 use crate::error::{DlmsError, DlmsResult};
 use async_trait::async_trait;
-use bytes::BytesMut;
 use std::time::Duration;
 
 /// Stream accessor interface to access a physical stream to a remote meter

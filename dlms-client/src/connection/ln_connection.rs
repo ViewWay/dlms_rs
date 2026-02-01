@@ -39,7 +39,7 @@ use dlms_application::addressing::LogicalNameReference;
 use dlms_core::{DlmsError, DlmsResult, ObisCode, DataObject};
 use dlms_session::hdlc::{HdlcConnection, HdlcAddress};
 use dlms_session::wrapper::WrapperSession;
-use dlms_transport::{TcpTransport, SerialTransport, TcpSettings, SerialSettings, TransportLayer};
+use dlms_transport::{TcpTransport, SerialTransport, TcpSettings, SerialSettings};
 use dlms_security::SecuritySuite;
 use std::time::Duration;
 use std::net::SocketAddr;
@@ -57,12 +57,13 @@ pub(crate) enum SessionLayer {
     /// Wrapper session with TCP transport
     WrapperTcp(WrapperSession<TcpTransport>),
     /// Wrapper session with Serial transport (rare, but possible)
+    #[allow(dead_code)] // Reserved for future use
     WrapperSerial(WrapperSession<SerialTransport>),
 }
 
 /// Transport configuration
 #[derive(Debug, Clone)]
-pub(crate) enum TransportConfig {
+pub enum TransportConfig {
     Tcp { address: String },
     Serial { port_name: String, baud_rate: u32 },
 }

@@ -33,7 +33,7 @@
 use async_trait::async_trait;
 use dlms_application::pdu::SelectiveAccessDescriptor;
 use dlms_core::{
-    datatypes::{CosemDate, CosemDateTime, ClockStatus, CosemDateFormat},
+    datatypes::{CosemDate, CosemDateTime, CosemDateFormat},
     DlmsError, DlmsResult, ObisCode, DataObject,
 };
 use std::sync::Arc;
@@ -453,7 +453,7 @@ impl CosemObject for Clock {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use dlms_core::datatypes::Field;
+    use dlms_core::datatypes::{Field, ClockStatus};
 
     #[tokio::test]
     async fn test_clock_class_id() {

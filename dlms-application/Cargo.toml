@@ -16,3 +16,7 @@ dlms-core = { path = "../dlms-core" }
 dlms-asn1 = { path = "../dlms-asn1" }
 dlms-security = { path = "../dlms-security" }
 bytes = { workspace = true }
+tokio = { workspace = true, optional = true }
+
+[features]
+tokio = ["dep:tokio"]

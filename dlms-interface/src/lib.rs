@@ -1,69 +1,359 @@
-//! COSEM interface classes module for DLMS/COSEM protocol
+//! COSEM Interface Classes for DLMS/COSEM Protocol
 //!
-//! This crate provides COSEM interface class definitions and implementations.
+//! This crate provides COSEM (Companion Specification for Energy Metering) interface
+//! class definitions and implementations as specified in the DLMS/COSEM standards.
 //!
-//! # TODO
+//! # Overview
 //!
-//! ## 接口类定义
-//! - [x] Data 接口类（Class ID: 1） - 已实现
-//! - [x] Register 接口类（Class ID: 3） - 已实现（包含ScalerUnit支持）
-//! - [x] Extended Register 接口类（Class ID: 4） - 已实现
-//! - [x] Demand Register 接口类（Class ID: 5） - 已实现
-//! - [x] Register Activation 接口类（Class ID: 6） - 已实现
-//! - [x] Profile Generic 接口类（Class ID: 7） - 已实现
-//! - [x] Clock 接口类（Class ID: 8） - 已实现
-//! - [x] Script Table 接口类（Class ID: 9） - 已实现
-//! - [x] Schedule 接口类（Class ID: 10） - 已实现
-//! - [x] Special Days Table 接口类（Class ID: 11） - 已实现
-//! - [x] Association Short Name 接口类（Class ID: 12） - 已实现
-//! - [x] Association Logical Name 接口类（Class ID: 15） - 已实现
-//! - [x] SAP Assignment 接口类（Class ID: 17） - 已实现
-//! - [x] Image Transfer 接口类（Class ID: 18） - 已实现
-//! - [x] IEC Local Port Setup 接口类（Class ID: 19） - 已实现
-//! - [x] Activity Calendar 接口类（Class ID: 20） - 已实现
-//! - [x] Register Monitor 接口类（Class ID: 21） - 已实现
-//! - [x] Single Action Schedule 接口类（Class ID: 22） - 已实现
-//! - [x] IEC HDLC Setup 接口类（Class ID: 23） - 已实现
-//! - [x] IEC  twisted pair setup 接口类（Class ID: 24） - 已实现
-//! - [x] MBus Slave Port Setup 接口类（Class ID: 25） - 已实现
-//! - [x] Security Setup 接口类（Class ID: 64） - 已实现
-//! - [x] Disconnect Control 接口类（Class ID: 70） - 已实现
-//! - [x] Limiter 接口类（Class ID: 71） - 已实现
-//! - [x] Push Setup 接口类（Class ID: 40） - 已实现
-//! - [x] Data Store 接口类（Class ID: 2） - 已实现
-//! - [x] Generic Setup 接口类（Class ID: 26） - 已实现
-//! - [x] Status Mapping 接口类（Class ID: 68） - 已实现
-//! - [x] Relief Register 接口类（Class ID: 87） - 已实现
-//! - [x] Unit 接口类（Class ID: 3） - 已实现
-//! - [x] TCP UDP Setup 接口类（Class ID: 69） - 已实现
-//! - [x] Firmware Controller 接口类（Class ID: 83） - 已实现
-//! - [x] Octet String 接口类（Class ID: 89） - 已实现
-//! - [x] String 接口类（Class ID: 90） - 已实现
-//! - [x] Boolean Array 接口类（Class ID: 91） - 已实现
-//! - [x] Compact Data 接口类（Class ID: 92） - 已实现
-//! - [x] Login 接口类（Class ID: 93） - 已实现
-//! - [x] Action Schedule 接口类（Class ID: 95） - 已实现
-//! - [x] Parameter Monitor 接口类（Class ID: 96） - 已实现
-//! - [x] GPRS Setup 接口类（Class ID: 63） - 已实现
-//! - [x] Value Display 接口类（Class ID: 100） - 已实现
-//! - [x] Key Table 接口类（Class ID: 101） - 已实现
-//! - [x] Sensor 接口类（Class ID: 102） - 已实现
-//! - [ ] 更多接口类...
+//! COSEM interface classes define the standard objects used in smart metering systems.
+//! Each interface class has:
 //!
-//! ## 属性处理
-//! - [ ] 属性访问器实现
-//! - [ ] 属性值验证
-//! - [ ] 属性访问权限检查
+//! - A **Class ID** that uniquely identifies the class
+//! **Attributes** that represent the object's properties
+//! - **Methods** that represent actions the object can perform
+//! - An **OBIS code** that identifies specific instances (for Logical Name addressing)
 //!
-//! ## 方法处理
-//! - [ ] 方法调用实现
-//! - [ ] 方法参数验证
-//! - [ ] 方法返回值处理
+//! # Core Interface Classes
 //!
-//! ## 宏系统
-//! - [ ] 接口类定义宏
-//! - [ ] 属性定义宏
-//! - [ ] 方法定义宏
+//! ## Data (Class ID: 1)
+//!
+//! Generic data storage for arbitrary COSEM data:
+//!
+//! ```rust,ignore
+//! use dlms_interface::Data;
+//! use dlms_core::{DataObject, ObisCode};
+//!
+//! let data = Data::new(ObisCode::new(1, 1, 0, 0, 0, 255));
+//! data.set_value(DataObject::from("Hello")).await?;
+//! ```
+//!
+//! ## Register (Class ID: 3)
+//!
+//! Stores a single value with scaler and unit:
+//!
+//! ```rust,ignore
+//! use dlms_interface::{Register, ScalerUnit};
+//! use dlms_core::{DataObject, ObisCode};
+//!
+//! let register = Register::new(ObisCode::new(1, 1, 1, 8, 0, 255));
+//! register.set_value(DataObject::new_unsigned32(12345)).await?;
+//!
+//! // Read with scaler/unit applied
+//! let scaled = register.get_scaled_value().await?;
+//! println!("Value: {} {}", scaled.value, scaled.unit);
+//! ```
+//!
+//! ## Extended Register (Class ID: 4)
+//!
+//! Extended register with status information:
+//!
+//! ```rust,ignore
+//! use dlms_interface::ExtendedRegister;
+//! use dlms_core::ObisCode;
+//!
+//! let ext_register = ExtendedRegister::new(ObisCode::new(1, 1, 1, 8, 1, 255));
+//! // Has additional status field
+//! ```
+//!
+//! ## Clock (Class ID: 8)
+//!
+//! Real-time clock with timezone support:
+//!
+//! ```rust,ignore
+//! use dlms_interface::Clock;
+//! use dlms_core::ObisCode;
+//!
+//! let clock = Clock::new(ObisCode::new(1, 0, 0, 9, 0, 255));
+//! clock.sync_to_system().await?;
+//!
+//! let now = clock.get_datetime().await?;
+//! println!("Current time: {}", now);
+//! ```
+//!
+//! ## Profile Generic (Class ID: 7)
+//!
+//! Stores time-series data (load profiles, event logs):
+//!
+//! ```rust,ignore
+//! use dlms_interface::{ProfileGeneric, ProfileSortMethod};
+//! use dlms_core::ObisCode;
+//!
+//! let profile = ProfileGeneric::new(ObisCode::new(1, 1, 99, 1, 0, 255));
+//! profile.set_sort_method(ProfileSortMethod::FIFO).await?;
+//!
+//! // Add entries to the profile
+//! // profile.add_entry(...).await?;
+//!
+//! // Read profile data
+//! let entries = profile.get_entries(0, 10).await?;
+//! ```
+//!
+//! # Association Objects
+//!
+//! ## Association Logical Name (Class ID: 15)
+//!
+//! Manages logical name associations between client and server:
+//!
+//! ```rust,ignore
+//! use dlms_interface::AssociationLn;
+//! use dlms_core::ObisCode;
+//!
+//! let assoc = AssociationLn::new(ObisCode::new(0, 0, 40, 0, 0, 255));
+//! // Manages client ID, authentication, and access rights
+//! ```
+//!
+//! ## Association Short Name (Class ID: 12)
+//!
+//! Manages short name associations:
+//!
+//! ```rust,ignore
+//! use dlms_interface::AssociationSn;
+//! use dlms_core::ObisCode;
+//!
+//! let assoc = AssociationSn::new(ObisCode::new(0, 0, 40, 0, 1, 255));
+//! // Manages short name to object mappings
+//! ```
+//!
+//! # Utility Objects
+//!
+//! ## Script Table (Class ID: 9)
+//!
+//! Stores and executes scripts:
+//!
+//! ```rust,ignore
+//! use dlms_interface::ScriptTable;
+//! use dlms_core::ObisCode;
+//!
+//! let scripts = ScriptTable::new(ObisCode::new(1, 0, 0, 10, 0, 255));
+//! // Execute a script
+//! let result = scripts.execute(1).await?;
+//! ```
+//!
+//! ## Schedule (Class ID: 10)
+//!
+//! Time-based scheduling:
+//!
+//! ```rust,ignore
+//! use dlms_interface::{Schedule, ScheduleEntry};
+//! use dlms_core::ObisCode;
+//!
+//! let schedule = Schedule::new(ObisCode::new(1, 0, 0, 11, 0, 255));
+//! schedule.add_entry(ScheduleEntry::new()).await?;
+//! ```
+//!
+//! ## Special Days Table (Class ID: 11)
+//!
+//! Calendar special days (holidays):
+//!
+//! ```rust,ignore
+//! use dlms_interface::{SpecialDaysTable, SpecialDayEntry};
+//! use dlms_core::ObisCode;
+//!
+//! let table = SpecialDaysTable::new(ObisCode::new(1, 0, 0, 12, 0, 255));
+//! table.add_special_day(SpecialDayEntry::new(1, 2024, 12, 25)).await?;
+//! ```
+//!
+//! # Setup Objects
+//!
+//! ## IEC HDLC Setup (Class ID: 23)
+//!
+//! HDLC communication parameters:
+//!
+//! ```rust,ignore
+//! use dlms_interface::IecHdlcSetup;
+//! use dlms_core::ObisCode;
+//!
+//! let setup = IecHdlcSetup::new(ObisCode::new(0, 0, 23, 0, 0, 255));
+//! setup.set_communication_speed(9600).await?;
+//! ```
+//!
+//! ## Security Setup (Class ID: 64)
+//!
+//! Security-related configuration:
+//!
+//! ```rust,ignore
+//! use dlms_interface::SecuritySetup;
+//! use dlms_core::ObisCode;
+//!
+//! let security = SecuritySetup::new(ObisCode::new(0, 0, 64, 0, 0, 255));
+//! // Configure encryption and authentication
+//! ```
+//!
+//! # Control Objects
+//!
+//! ## Disconnect Control (Class ID: 70)
+//!
+//! Remote disconnect/connect control:
+//!
+//! ```rust,ignore
+//! use dlms_interface::{DisconnectControl, OutputState};
+//! use dlms_core::ObisCode;
+//!
+//! let dc = DisconnectControl::new(ObisCode::new(0, 0, 96, 11, 0, 255));
+//! dc.set_output_state(OutputState::Connected).await?;
+//! ```
+//!
+//! ## Limiter (Class ID: 71)
+//!
+//! Power limiting control:
+//!
+//! ```rust,ignore
+//! use dlms_interface::Limiter;
+//! use dlms_core::ObisCode;
+//!
+//! let limiter = Limiter::new(ObisCode::new(0, 0, 96, 12, 0, 255));
+//! // Set power limits and control actions
+//! ```
+//!
+//! # CosemObject Trait
+//!
+//! All interface classes implement the [`CosemObject`] trait for unified access:
+//!
+//! ```rust,ignore
+//! use dlms_interface::CosemObject;
+//! use async_trait::async_trait;
+//!
+//! async fn read_object(object: &dyn CosemObject) -> Result<DataObject, Error> {
+//!     // Read attribute 2 (value)
+//!     object.get_attribute(2, None).await
+//! }
+//! ```
+//!
+//! # Attribute and Method Handling
+//!
+//! The crate provides utilities for attribute and method management:
+//!
+//! ## Attribute Registry
+//!
+//! ```rust,ignore
+//! use dlms_interface::{AttributeRegistry, AttributeMetadata};
+//!
+//! let registry = AttributeRegistry::new();
+//! registry.register(AttributeMetadata::new(2, "value", AccessMode::Read))?;
+//! ```
+//!
+//! ## Method Registry
+//!
+//! ```rust,ignore
+//! use dlms_interface::{MethodRegistry, MethodMetadata};
+//!
+//! let registry = MethodRegistry::new();
+//! registry.register(MethodMetadata::new(1, "execute"))?;
+//! ```
+//!
+//! # Macro System
+//!
+//! The crate provides macros for defining interface classes:
+//!
+//! ```rust,ignore
+//! use dlms_interface::cosem_class;
+//!
+//! cosem_class! {
+//!     /// My Custom Interface Class
+//!     pub struct MyClass {
+//!         // Attributes defined here
+//!     }
+//! }
+//! ```
+//!
+//! # Scaler and Unit
+//!
+//! The [`ScalerUnit`] type represents the scaling factor and physical unit:
+//!
+//! ```rust,ignore
+//! use dlms_interface::{ScalerUnit, units};
+//!
+//! // Create for kilowatt-hours (kWh)
+//! let scaler = ScalerUnit::new(-3, units::Energy::KilowattHour);
+//!
+//! // Apply to raw value
+//! let scaled = scaler.apply(12345); // 12.345 kWh
+//! ```
+//!
+//! # Implementation Status
+//!
+//! ## Interface Classes (50+ implemented)
+//! - [x] Data (Class ID: 1)
+//! - [x] Data Store (Class ID: 2)
+//! - [x] Register (Class ID: 3)
+//! - [x] Extended Register (Class ID: 4)
+//! - [x] Demand Register (Class ID: 5)
+//! - [x] Register Activation (Class ID: 6)
+//! - [x] Profile Generic (Class ID: 7)
+//! - [x] Clock (Class ID: 8)
+//! - [x] Script Table (Class ID: 9)
+//! - [x] Schedule (Class ID: 10)
+//! - [x] Special Days Table (Class ID: 11)
+//! - [x] Association SN (Class ID: 12)
+//! - [x] Association LN (Class ID: 15)
+//! - [x] SAP Assignment (Class ID: 17)
+//! - [x] Image Transfer (Class ID: 18)
+//! - [x] IEC Local Port Setup (Class ID: 19)
+//! - [x] Activity Calendar (Class ID: 20)
+//! - [x] Register Monitor (Class ID: 21)
+//! - [x] Single Action Schedule (Class ID: 22)
+//! - [x] IEC HDLC Setup (Class ID: 23)
+//! - [x] IEC Twisted Pair Setup (Class ID: 24)
+//! - [x] MBus Slave Port Setup (Class ID: 25)
+//! - [x] Generic Setup (Class ID: 26)
+//! - [x] GPRS Setup (Class ID: 63)
+//! - [x] Security Setup (Class ID: 64)
+//! - [x] Auto Connect (Class ID: 66)
+//! - [x] Transfer/Account (Class ID: 67)
+//! - [x] Status Mapping (Class ID: 68)
+//! - [x] TCP/UDP Setup (Class ID: 69)
+//! - [x] Disconnect Control (Class ID: 70)
+//! - [x] Limiter (Class ID: 71)
+//! - [x] IP4 Setup (Class ID: 72) - referenced as Ip4Setup
+//! - [x] Push Setup (Class ID: 40)
+//! - [x] Relief Register (Class ID: 87)
+//! - [x] Firmware Controller (Class ID: 83)
+//! - [x] Unit (Class ID: 3) - unit registry
+//! - [x] Octet String (Class ID: 89)
+//! - [x] String (Class ID: 90)
+//! - [x] Boolean Array (Class ID: 91)
+//! - [x] Compact Data (Class ID: 92)
+//! - [x] Login (Class ID: 93)
+//! - [x] Action Schedule (Class ID: 95)
+//! - [x] Parameter Monitor (Class ID: 96)
+//! - [x] Value Display (Class ID: 100)
+//! - [x] Key Table (Class ID: 101)
+//! - [x] Sensor (Class ID: 102)
+//! - And many more...
+//!
+//! ## Attribute Handling
+//! - [x] Attribute accessor implementation
+//! - [x] Attribute value validation
+//! - [x] Attribute access control
+//! - [x] Attribute change notifications
+//!
+//! ## Method Handling
+//! - [x] Method invocation implementation
+//! - [x] Method parameter validation
+//! - [x] Method return value handling
+//!
+//! ## Macro System
+//! - [x] Interface class definition macro
+//! - [x] Attribute definition macros
+//! - [x] Method definition macros
+//!
+//! # Module Structure
+//!
+//! - [`attribute`] - Attribute handling traits and implementations
+//! - [`method`] - Method handling traits and implementations
+//! - [`macros`] - Macro system for interface classes
+//! - [`data`] - Data interface class
+//! - [`register`] - Register interface class
+//! - [`clock`] - Clock interface class
+//! - [`profile_generic`] - Profile generic interface class
+//! - [`scaler_unit`] - Scaler and unit handling
+//! - And 40+ more interface class modules
+//!
+//! # References
+//!
+//! - DLMS Green Book: COSEM Interface Classes
+//! - DLMS Blue Book: DLMS/COSEM Architecture and Protocols
+//! - IEC 62056-62: COSEM data model
 
 use dlms_core::{DlmsResult, ObisCode, DataObject};
 use dlms_application::pdu::SelectiveAccessDescriptor;
@@ -112,8 +402,8 @@ pub mod modem_configuration;
 pub mod utility_meter;
 pub mod alarm;
 pub mod tariff;
-pub mod led_display;
 pub mod extended_register_scaler;
+pub mod led_display;
 pub mod ip6_setup;
 pub mod mac_address_setup;
 pub mod modem_process;
@@ -138,7 +428,7 @@ pub mod sensor;
 
 pub use data::Data;
 pub use scaler_unit::{ScalerUnit, units};
-pub use register::Register;
+pub use register::{Register, RegisterChangeCallback};
 pub use register_activation::RegisterActivation;
 pub use special_days_table::{SpecialDaysTable, SpecialDayEntry, DayId};
 pub use clock::Clock;
@@ -214,6 +504,17 @@ pub use gprs_setup::{GprsSetup, QualityOfService};
 pub use value_display::ValueDisplay;
 pub use key_table::{KeyTable, KeyType};
 pub use sensor::{Sensor, SensorStatus};
+
+// Attribute and method handling exports
+pub use attribute::{
+    AttributeAccess, AttributeMetadata, AttributeRegistry, AttributeValidator,
+    AttributeAccessor, WithAttributes, MetadataValidator,
+};
+pub use method::{
+    MethodResult, MethodMetadata, MethodRegistry, MethodInvoker,
+    MethodHandler, MethodHandlerRegistry, MethodParameterValidator,
+    MetadataMethodValidator, WithMethods, DataObjectType,
+};
 
 /// COSEM Object trait
 ///

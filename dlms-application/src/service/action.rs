@@ -111,9 +111,6 @@ impl ActionService {
                     }
                 }
             }
-            _ => Err(DlmsError::InvalidData(
-                "Expected Normal ACTION response".to_string(),
-            )),
         }
     }
 
@@ -127,9 +124,6 @@ impl ActionService {
     pub fn process_response_result(response: &ActionResponse) -> DlmsResult<ActionResult> {
         match response {
             ActionResponse::Normal(normal) => Ok(normal.result.clone()),
-            _ => Err(DlmsError::InvalidData(
-                "Expected Normal ACTION response".to_string(),
-            )),
         }
     }
 }

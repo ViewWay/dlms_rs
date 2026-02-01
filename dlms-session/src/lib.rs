@@ -1,42 +1,160 @@
-//! Session layer module for DLMS/COSEM protocol
+//! DLMS/COSEM Session Layer
 //!
-//! This crate provides session layer implementations for HDLC and Wrapper protocols.
+//! This crate provides session layer implementations for DLMS/COSEM protocol,
+//! supporting HDLC (High-level Data Link Control) protocol.
 //!
-//! # TODO
+//! # Overview
 //!
-//! ## HDLC 会话层
-//! - [x] HDLC 地址编码/解码
-//! - [x] HDLC 帧编码/解码
-//! - [x] FCS 计算和验证
-//! - [x] HCS (Header Check Sequence) 计算和验证
-//! - [x] HDLC 连接管理
-//! - [x] HDLC 窗口管理（滑动窗口协议）
-//! - [x] HDLC 帧重传机制
-//! - [x] HDLC 连接建立和协商（SNRM/UA握手）
-//! - [x] HDLC 连接释放（DISC/DM/UA握手）
-//! - [x] HDLC 参数协商（最大信息字段长度等）
-//! - [x] HDLC 帧分段和重组（自动RR帧发送）
-//! - [x] LLC Header支持
-//! - [x] HDLC统计信息收集
-//! - [x] 状态机管理
-//! - [ ] HDLC 错误恢复机制（高级功能）
+//! The session layer manages the communication session between client and server.
+//! DLMS/COSEM supports HDLC as the primary session protocol:
 //!
-//! ## Wrapper 会话层
-//! - [x] Wrapper 头部编码/解码
-//! - [x] Wrapper PDU 编码/解码
-//! - [x] Wrapper 会话管理
-//! - [ ] Wrapper 连接建立流程
-//! - [ ] Wrapper 错误处理
+//! - **HDLC**: Traditional connection-oriented protocol with framing, addressing,
+//!   and flow control
 //!
-//! ## 通用功能
-//! - [x] 会话层统计信息（HDLC统计）
-//! - [x] 会话状态管理（HDLC状态机）
-//! - [ ] 多会话支持（高级功能）
+//! # HDLC Protocol
+//!
+//! HDLC is the traditional DLMS session protocol operating over serial connections:
+//!
+//! ```rust,ignore
+//! use dlms_session::{HdlcConnection, HdlcAddress, HdlcParameters};
+//! use tokio::serial::SerialStream;
+//!
+//! // Create HDLC connection
+//! let serial = SerialStream::open("/dev/ttyUSB0", &serial_settings).await?;
+//! let params = HdlcParameters::new(
+//!     HdlcAddress::client(0x01),  // Client address
+//!     HdlcAddress::server(0x01),  // Server address
+//!     2048,  // Max info field length
+//! );
+//!
+//! let mut connection = HdlcConnection::new(serial, params)?;
+//!
+//! // Send connection request
+//! connection.send_snrm().await?;
+//!
+//! // Wait for UA (Unnumbered Acknowledgment)
+//! let frame = connection.recv_frame().await?;
+//!
+//! // Send data
+//! let data = vec![0x01, 0x02, 0x03];
+//! connection.send_data(&data).await?;
+//! ```
+//!
+//! # HDLC Window Management
+//!
+//! The HDLC layer implements a sliding window protocol for flow control:
+//!
+//! ```rust,ignore
+//! use dlms_session::{HdlcConnection, HdlcParameters, SendWindow, ReceiveWindow};
+//!
+//! let params = HdlcParameters::new(
+//!     HdlcAddress::client(0x01),
+//!     HdlcAddress::server(0x01),
+//!     2048,
+//! )
+//! .with_window_size(8);  // Window size 8
+//!
+//! let mut connection = HdlcConnection::new(serial, params)?;
+//! ```
+//!
+//! # Frame Structure
+//!
+//! HDLC frames have the following structure:
+//!
+//! ```text
+//! +-----+-----+-----+-----+------+-----+-----+
+//! | Flag | Addr | Ctrl | HCS | Info | FCS | Flag |
+//! +-----+-----+-----+-----+------+-----+-----+
+//! | 0x7E | ... | ... | ... | ... | ... | 0x7E |
+//! +-----+-----+-----+-----+------+-----+-----+
+//! ```
+//!
+//! Where:
+//! - **Flag**: 0x7E frame delimiter
+//! - **Addr**: HDLC address (client/server)
+//! - **Ctrl**: Control field (I/S/U frames)
+//! - **HCS**: Header Check Sequence (CRC-16)
+//! - **Info**: Information field (application data)
+//! - **FCS**: Frame Check Sequence (CRC-16)
+//!
+//! # Connection Management
+//!
+//! ## HDLC Connection States
+//!
+//! ```text
+//!      ┌─────────┐
+//!      │   Idle   │
+//!      └────┬────┘
+//!           │ SNRM
+//!           ▼
+//!      ┌─────────┐
+//!      │ Pending │
+//!      └────┬────┘
+//!           │ UA received
+//!           ▼
+//!      ┌─────────┐
+//!      │ Connected│
+//!      └─────────┘
+//!           │ DISC
+//!           ▼
+//!      ┌─────────┐
+//!      │  Closed  │
+//!      └─────────┘
+//! ```
+//!
+//! ## Connection Statistics
+//!
+//! ```rust,ignore
+//! use dlms_session::HdlcConnection;
+//!
+//! let stats = connection.statistics().await;
+//! println!("Frames sent: {}", stats.frames_sent);
+//! println!("Frames received: {}", stats.frames_received);
+//! println!("Errors: {}", stats.frame_errors);
+//! ```
+//!
+//! # Module Structure
+//!
+//! - [`hdlc`] - HDLC protocol implementation
+//!   - [`connection`] - HDLC connection management
+//!   - [`frame`] - HDLC frame encoding/decoding
+//!   - [`window`] - Sliding window protocol
+//!   - [`address`] - HDLC addressing
+//! - [`error`] - Session layer error types
+//!
+//! # Implementation Status
+//!
+//! ## HDLC
+//! - [x] HDLC address encoding/decoding
+//! - [x] HDLC frame encoding/decoding
+//! - [x] FCS calculation and verification (CRC-16)
+//! - [x] HCS calculation and verification
+//! - [x] Connection management (SNRM/UA, DISC/DM/UA)
+//! - [x] Sliding window protocol (I-frames, RR-frames)
+//! - [x] Frame retransmission
+//! - [x] Parameter negotiation
+//! - [x] LLC header support
+//! - [x] Statistics collection
+//! - [x] State machine management
+//!
+//! # References
+//!
+//! - IEC 62056-46: DLMS/COSEM HDLC Protocol
 
 pub mod error;
 pub mod hdlc;
 pub mod wrapper;
 
 pub use error::{DlmsError, DlmsResult};
-pub use hdlc::*;
-pub use wrapper::{WrapperSession, WrapperHeader, WrapperPdu, WRAPPER_HEADER_LENGTH};
+
+// Wrapper exports
+pub use wrapper::{
+    WrapperSession, WrapperHeader, WrapperPdu, WRAPPER_HEADER_LENGTH,
+};
+
+// HDLC exports
+pub use hdlc::{
+    HdlcConnection, HdlcParameters, HdlcAddress, HdlcFrame, FrameType,
+    HdlcConnectionState, HdlcStatistics, SendWindow, ReceiveWindow,
+    HdlcAddressPair,
+};

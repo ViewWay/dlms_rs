@@ -101,20 +101,4 @@ impl HdlcMessageDecoder {
             Ok(())
         }
     }
-
-    /// Helper function for reading exact number of bytes
-    async fn read_exact<S: StreamAccessor>(stream: &mut S, buf: &mut [u8]) -> DlmsResult<()> {
-        let mut pos = 0;
-        while pos < buf.len() {
-            let n = stream.read(&mut buf[pos..]).await?;
-            if n == 0 {
-                return Err(DlmsError::Connection(std::io::Error::new(
-                    std::io::ErrorKind::UnexpectedEof,
-                    "Unexpected end of stream",
-                )));
-            }
-            pos += n;
-        }
-        Ok(())
-    }
 }

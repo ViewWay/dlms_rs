@@ -114,9 +114,36 @@ impl SetService {
                     }
                 }
             }
-            _ => Err(DlmsError::InvalidData(
-                "Expected Normal SET response".to_string(),
-            )),
+            SetResponse::WithDataBlock { last_block, .. } => {
+                // For WithDataBlock, check if this was the last block
+                if *last_block {
+                    // Last block received successfully - the transfer is complete
+                    // But we need to wait for the final Normal response
+                    Err(DlmsError::InvalidData(
+                        "SET block transfer: Last block acknowledged, waiting for final Normal response".to_string()
+                    ))
+                } else {
+                    // More blocks expected
+                    Err(DlmsError::InvalidData(
+                        format!("SET block transfer: Block acknowledged, more blocks expected")
+                    ))
+                }
+            }
+            SetResponse::WithList(with_list) => {
+                // For WithList, check if all operations succeeded
+                if with_list.all_success() {
+                    Ok(())
+                } else {
+                    // Return error with details about failures
+                    let success_count = with_list.success_count();
+                    let total_count = with_list.len();
+                    Err(DlmsError::InvalidData(format!(
+                        "SET-WithList: {}/{} operations failed",
+                        total_count - success_count,
+                        total_count
+                    )))
+                }
+            }
         }
     }
 
@@ -127,13 +154,40 @@ impl SetService {
     ///
     /// # Returns
     /// The `SetDataResult` containing either success or error code
+    ///
+    /// # Note
+    /// For WithList responses, returns the first non-success result if any,
+    /// otherwise returns Success.
+    /// For WithDataBlock responses, returns Success if block acknowledged.
     pub fn process_response_result(response: &SetResponse) -> DlmsResult<SetDataResult> {
         match response {
             SetResponse::Normal(normal) => Ok(normal.result.clone()),
-            _ => Err(DlmsError::InvalidData(
-                "Expected Normal SET response".to_string(),
-            )),
+            SetResponse::WithDataBlock { .. } => {
+                // Block was acknowledged
+                Ok(SetDataResult::Success)
+            }
+            SetResponse::WithList(with_list) => {
+                // Return first non-success result, or Success if all succeeded
+                for result in &with_list.result_list {
+                    if !matches!(result, SetDataResult::Success) {
+                        return Ok(result.clone());
+                    }
+                }
+                Ok(SetDataResult::Success)
+            }
         }
+    }
+
+    /// Check if a response indicates more blocks are needed
+    ///
+    /// # Arguments
+    /// * `response` - The SET response PDU
+    ///
+    /// # Returns
+    /// true if this is a WithDataBlock response and last_block is false,
+    /// indicating more blocks need to be sent
+    pub fn needs_more_blocks(response: &SetResponse) -> bool {
+        matches!(response, SetResponse::WithDataBlock { last_block: false, .. })
     }
 }
 

@@ -343,7 +343,7 @@ impl Conformance {
                 bit
             )));
         }
-        self.bits.set_bit(bit, value);
+        let _ = self.bits.set_bit(bit, value);
         Ok(())
     }
 
@@ -1922,12 +1922,11 @@ impl GetRequestNormal {
     /// to avoid the need for re-encoding to calculate consumed bytes.
     pub fn decode(data: &[u8]) -> DlmsResult<Self> {
         let mut decoder = AxdrDecoder::new(data);
-        let mut pos = 0;
 
         // Decode in the same order as encode (access_selection, cosem_attribute_descriptor, invoke_id_and_priority)
         // 1. access_selection (optional SelectiveAccessDescriptor)
         let access_used = decoder.decode_bool()?;
-        pos = decoder.position();
+        let mut pos = decoder.position();
 
         let access_selection = if access_used {
             let access = SelectiveAccessDescriptor::decode(&data[pos..])?;
@@ -3666,12 +3665,454 @@ impl SetResponseNormal {
     }
 }
 
+/// Set Request WithList PDU
+///
+/// Multiple attribute SET request. Allows setting multiple attributes in a single request.
+///
+/// # Structure
+/// - `invoke_id_and_priority`: Invoke ID and priority
+/// - `attribute_descriptor_list`: List of attribute descriptors to write
+/// - `access_selection_list`: Optional list of selective access descriptors
+/// - `value_list`: List of data values to write
+///
+/// # Why WithList?
+/// Similar to GetRequest-WithList, this allows batch operations for improved efficiency.
+/// Instead of sending multiple SET requests, the client can send one request with multiple
+/// attributes to set.
+///
+/// # DLMS Specification
+/// - Choice tag: 4 = WithList
+/// - All lists must have the same length
+/// - Each attribute is processed independently; errors for one attribute don't affect others
+#[derive(Debug, Clone, PartialEq)]
+pub struct SetRequestWithList {
+    /// Invoke ID and priority
+    pub invoke_id_and_priority: InvokeIdAndPriority,
+    /// List of attribute descriptors to write
+    pub attribute_descriptor_list: Vec<CosemAttributeDescriptor>,
+    /// Optional list of selective access descriptors (same length as attribute_descriptor_list)
+    pub access_selection_list: Vec<Option<SelectiveAccessDescriptor>>,
+    /// List of data values to write (same length as attribute_descriptor_list)
+    pub value_list: Vec<DataObject>,
+}
+
+impl SetRequestWithList {
+    /// Create a new SetRequestWithList
+    ///
+    /// # Arguments
+    /// * `invoke_id_and_priority` - Invoke ID and priority
+    /// * `attribute_descriptor_list` - List of attribute descriptors
+    /// * `access_selection_list` - List of selective access descriptors
+    /// * `value_list` - List of values to write
+    ///
+    /// # Errors
+    /// Returns error if the lists don't have matching lengths
+    pub fn new(
+        invoke_id_and_priority: InvokeIdAndPriority,
+        attribute_descriptor_list: Vec<CosemAttributeDescriptor>,
+        access_selection_list: Vec<Option<SelectiveAccessDescriptor>>,
+        value_list: Vec<DataObject>,
+    ) -> DlmsResult<Self> {
+        if attribute_descriptor_list.is_empty() {
+            return Err(DlmsError::InvalidData(
+                "SetRequest::WithList: attribute_descriptor_list cannot be empty".to_string()
+            ));
+        }
+        if attribute_descriptor_list.len() != access_selection_list.len() {
+            return Err(DlmsError::InvalidData(format!(
+                "SetRequest::WithList: access_selection_list length ({}) must match attribute_descriptor_list length ({})",
+                access_selection_list.len(),
+                attribute_descriptor_list.len()
+            )));
+        }
+        if attribute_descriptor_list.len() != value_list.len() {
+            return Err(DlmsError::InvalidData(format!(
+                "SetRequest::WithList: value_list length ({}) must match attribute_descriptor_list length ({})",
+                value_list.len(),
+                attribute_descriptor_list.len()
+            )));
+        }
+
+        Ok(Self {
+            invoke_id_and_priority,
+            attribute_descriptor_list,
+            access_selection_list,
+            value_list,
+        })
+    }
+
+    /// Get the number of attributes in this request
+    pub fn len(&self) -> usize {
+        self.attribute_descriptor_list.len()
+    }
+
+    /// Check if this request is empty
+    pub fn is_empty(&self) -> bool {
+        self.attribute_descriptor_list.is_empty()
+    }
+
+    /// Encode to A-XDR format
+    ///
+    /// Encoding order (A-XDR, reverse order):
+    /// 1. value_list (array of DataObject)
+    /// 2. access_selection_list (array of optional SelectiveAccessDescriptor)
+    /// 3. attribute_descriptor_list (array of CosemAttributeDescriptor)
+    /// 4. invoke_id_and_priority (InvokeIdAndPriority)
+    pub fn encode(&self) -> DlmsResult<Vec<u8>> {
+        use dlms_asn1::LengthEncoding;
+
+        let mut encoder = AxdrEncoder::new();
+
+        // Encode in reverse order (A-XDR)
+
+        // 1. value_list - array of DataObject, each encoded directly
+        // Encode array length
+        let len_enc = if self.value_list.len() < 128 {
+            LengthEncoding::Short(self.value_list.len() as u8)
+        } else {
+            LengthEncoding::Long(self.value_list.len())
+        };
+        encoder.encode_bytes(&len_enc.encode())?;
+
+        // Encode each element (in forward order, as per A-XDR array encoding)
+        for value in &self.value_list {
+            encoder.encode_data_object(value)?;
+        }
+
+        // 2. access_selection_list - array of optional SelectiveAccessDescriptor
+        // Encode array length
+        let len_enc = if self.access_selection_list.len() < 128 {
+            LengthEncoding::Short(self.access_selection_list.len() as u8)
+        } else {
+            LengthEncoding::Long(self.access_selection_list.len())
+        };
+        encoder.encode_bytes(&len_enc.encode())?;
+
+        // Encode each element (in forward order, as per A-XDR array encoding)
+        // Each element is optional, so encode flag then value
+        for access_opt in &self.access_selection_list {
+            encoder.encode_bool(access_opt.is_some())?;
+            if let Some(access_desc) = access_opt {
+                let access_bytes = access_desc.encode()?;
+                encoder.encode_octet_string(&access_bytes)?;
+            }
+        }
+
+        // 3. attribute_descriptor_list - array of CosemAttributeDescriptor
+        // Encode array length
+        let len_enc = if self.attribute_descriptor_list.len() < 128 {
+            LengthEncoding::Short(self.attribute_descriptor_list.len() as u8)
+        } else {
+            LengthEncoding::Long(self.attribute_descriptor_list.len())
+        };
+        encoder.encode_bytes(&len_enc.encode())?;
+
+        // Encode each element (in forward order, as per A-XDR array encoding)
+        for attr_desc in &self.attribute_descriptor_list {
+            let attr_bytes = attr_desc.encode()?;
+            encoder.encode_octet_string(&attr_bytes)?;
+        }
+
+        // 4. invoke_id_and_priority
+        let invoke_bytes = self.invoke_id_and_priority.encode()?;
+        encoder.encode_octet_string(&invoke_bytes)?;
+
+        Ok(encoder.into_bytes())
+    }
+
+    /// Decode from A-XDR format
+    ///
+    /// Decoding order (reverse of encoding):
+    /// 1. invoke_id_and_priority
+    /// 2. attribute_descriptor_list
+    /// 3. access_selection_list
+    /// 4. value_list
+    pub fn decode(data: &[u8]) -> DlmsResult<Self> {
+        let mut decoder = AxdrDecoder::new(data);
+
+        // 1. invoke_id_and_priority
+        let invoke_bytes = decoder.decode_octet_string()?;
+        let invoke_id_and_priority = InvokeIdAndPriority::decode(&invoke_bytes)?;
+
+        // 2. attribute_descriptor_list (required array)
+        let first_byte: u8 = decoder.decode_u8()?;
+        let attr_list_len: usize = if (first_byte & 0x80) == 0 {
+            // Short form: length < 128
+            first_byte as usize
+        } else {
+            // Long form: length-of-length byte + length bytes
+            let length_of_length = (first_byte & 0x7F) as usize;
+            if length_of_length == 0 || length_of_length > 4 {
+                return Err(DlmsError::InvalidData(format!(
+                    "SetRequest::WithList: Invalid length-of-length for attribute_descriptor_list: {}",
+                    length_of_length
+                )));
+            }
+            let len_bytes = decoder.decode_fixed_bytes(length_of_length)?;
+            let mut len = 0usize;
+            for &byte in len_bytes.iter() {
+                len = (len << 8) | (byte as usize);
+            }
+            len
+        };
+
+        if attr_list_len == 0 {
+            return Err(DlmsError::InvalidData(
+                "SetRequest::WithList: attribute_descriptor_list cannot be empty".to_string(),
+            ));
+        }
+
+        // Decode each element (in forward order)
+        let mut attribute_descriptor_list = Vec::with_capacity(attr_list_len);
+        for _ in 0..attr_list_len {
+            let attr_bytes = decoder.decode_octet_string()?;
+            attribute_descriptor_list.push(CosemAttributeDescriptor::decode(&attr_bytes)?);
+        }
+
+        // 3. access_selection_list (required array)
+        let first_byte: u8 = decoder.decode_u8()?;
+        let access_list_len: usize = if (first_byte & 0x80) == 0 {
+            // Short form: length < 128
+            first_byte as usize
+        } else {
+            // Long form: length-of-length byte + length bytes
+            let length_of_length = (first_byte & 0x7F) as usize;
+            if length_of_length == 0 || length_of_length > 4 {
+                return Err(DlmsError::InvalidData(format!(
+                    "SetRequest::WithList: Invalid length-of-length for access_selection_list: {}",
+                    length_of_length
+                )));
+            }
+            let len_bytes = decoder.decode_fixed_bytes(length_of_length)?;
+            let mut len = 0usize;
+            for &byte in len_bytes.iter() {
+                len = (len << 8) | (byte as usize);
+            }
+            len
+        };
+
+        // Validate lengths match
+        if access_list_len != attr_list_len {
+            return Err(DlmsError::InvalidData(format!(
+                "SetRequest::WithList: access_selection_list length ({}) does not match attribute_descriptor_list length ({})",
+                access_list_len,
+                attr_list_len
+            )));
+        }
+
+        // Decode each element (in forward order)
+        // Each element is optional, so decode flag then value
+        let mut access_selection_list = Vec::with_capacity(access_list_len);
+        for _ in 0..access_list_len {
+            let has_access = decoder.decode_bool()?;
+            let access = if has_access {
+                let access_bytes = decoder.decode_octet_string()?;
+                Some(SelectiveAccessDescriptor::decode(&access_bytes)?)
+            } else {
+                None
+            };
+            access_selection_list.push(access);
+        }
+
+        // 4. value_list (required array)
+        let first_byte: u8 = decoder.decode_u8()?;
+        let value_list_len: usize = if (first_byte & 0x80) == 0 {
+            // Short form: length < 128
+            first_byte as usize
+        } else {
+            // Long form: length-of-length byte + length bytes
+            let length_of_length = (first_byte & 0x7F) as usize;
+            if length_of_length == 0 || length_of_length > 4 {
+                return Err(DlmsError::InvalidData(format!(
+                    "SetRequest::WithList: Invalid length-of-length for value_list: {}",
+                    length_of_length
+                )));
+            }
+            let len_bytes = decoder.decode_fixed_bytes(length_of_length)?;
+            let mut len = 0usize;
+            for &byte in len_bytes.iter() {
+                len = (len << 8) | (byte as usize);
+            }
+            len
+        };
+
+        // Validate lengths match
+        if value_list_len != attr_list_len {
+            return Err(DlmsError::InvalidData(format!(
+                "SetRequest::WithList: value_list length ({}) does not match attribute_descriptor_list length ({})",
+                value_list_len,
+                attr_list_len
+            )));
+        }
+
+        // Decode each element (in forward order)
+        let mut value_list = Vec::with_capacity(value_list_len);
+        for _ in 0..value_list_len {
+            value_list.push(decoder.decode_data_object()?);
+        }
+
+        Self::new(
+            invoke_id_and_priority,
+            attribute_descriptor_list,
+            access_selection_list,
+            value_list,
+        )
+    }
+}
+
+/// Set Response WithList PDU
+///
+/// Response to a SetRequest-WithList. Contains results for all SET operations.
+///
+/// # Structure
+/// - `invoke_id_and_priority`: Invoke ID and priority
+/// - `result_list`: List of SET operation results
+///
+/// # Why WithList Response?
+/// Each attribute in the WithList request gets its own result. This allows
+/// partial success where some attributes are set successfully while others fail.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SetResponseWithList {
+    /// Invoke ID and priority
+    pub invoke_id_and_priority: InvokeIdAndPriority,
+    /// List of SET operation results
+    pub result_list: Vec<SetDataResult>,
+}
+
+impl SetResponseWithList {
+    /// Create a new SetResponseWithList
+    ///
+    /// # Errors
+    /// Returns error if the result list is empty
+    pub fn new(
+        invoke_id_and_priority: InvokeIdAndPriority,
+        result_list: Vec<SetDataResult>,
+    ) -> DlmsResult<Self> {
+        if result_list.is_empty() {
+            return Err(DlmsError::InvalidData(
+                "SetResponse::WithList: result_list cannot be empty".to_string()
+            ));
+        }
+
+        Ok(Self {
+            invoke_id_and_priority,
+            result_list,
+        })
+    }
+
+    /// Get the number of results in this response
+    pub fn len(&self) -> usize {
+        self.result_list.len()
+    }
+
+    /// Check if this response is empty
+    pub fn is_empty(&self) -> bool {
+        self.result_list.is_empty()
+    }
+
+    /// Check if all operations succeeded
+    pub fn all_success(&self) -> bool {
+        self.result_list.iter().all(|r| matches!(r, SetDataResult::Success))
+    }
+
+    /// Count successful operations
+    pub fn success_count(&self) -> usize {
+        self.result_list.iter().filter(|r| matches!(r, SetDataResult::Success)).count()
+    }
+
+    /// Encode to A-XDR format
+    ///
+    /// Encoding order (A-XDR, reverse order):
+    /// 1. result_list (array of SetDataResult)
+    /// 2. invoke_id_and_priority (InvokeIdAndPriority)
+    pub fn encode(&self) -> DlmsResult<Vec<u8>> {
+        use dlms_asn1::LengthEncoding;
+
+        let mut encoder = AxdrEncoder::new();
+
+        // Encode in reverse order (A-XDR)
+
+        // 1. result_list - array of SetDataResult
+        // Encode array length
+        let len_enc = if self.result_list.len() < 128 {
+            LengthEncoding::Short(self.result_list.len() as u8)
+        } else {
+            LengthEncoding::Long(self.result_list.len())
+        };
+        encoder.encode_bytes(&len_enc.encode())?;
+
+        // Encode each element (in forward order, as per A-XDR array encoding)
+        // Each element is encoded as octet string with length prefix
+        for result in &self.result_list {
+            let result_bytes = result.encode()?;
+            encoder.encode_octet_string(&result_bytes)?;
+        }
+
+        // 2. invoke_id_and_priority
+        let invoke_bytes = self.invoke_id_and_priority.encode()?;
+        encoder.encode_octet_string(&invoke_bytes)?;
+
+        Ok(encoder.into_bytes())
+    }
+
+    /// Decode from A-XDR format
+    ///
+    /// Decoding order (reverse of encoding):
+    /// 1. invoke_id_and_priority
+    /// 2. result_list
+    pub fn decode(data: &[u8]) -> DlmsResult<Self> {
+        let mut decoder = AxdrDecoder::new(data);
+
+        // 1. invoke_id_and_priority
+        let invoke_bytes = decoder.decode_octet_string()?;
+        let invoke_id_and_priority = InvokeIdAndPriority::decode(&invoke_bytes)?;
+
+        // 2. result_list (required array of SetDataResult)
+        // Decode array length: first byte indicates format
+        let first_byte: u8 = decoder.decode_u8()?;
+        let result_list_len: usize = if (first_byte & 0x80) == 0 {
+            // Short form: length < 128
+            first_byte as usize
+        } else {
+            // Long form: length-of-length byte + length bytes
+            let length_of_length = (first_byte & 0x7F) as usize;
+            if length_of_length == 0 || length_of_length > 4 {
+                return Err(DlmsError::InvalidData(format!(
+                    "SetResponse::WithList: Invalid length-of-length: {}",
+                    length_of_length
+                )));
+            }
+            let len_bytes = decoder.decode_fixed_bytes(length_of_length)?;
+            let mut len = 0usize;
+            for &byte in len_bytes.iter() {
+                len = (len << 8) | (byte as usize);
+            }
+            len
+        };
+
+        if result_list_len == 0 {
+            return Err(DlmsError::InvalidData(
+                "SetResponse::WithList: result_list cannot be empty".to_string(),
+            ));
+        }
+
+        // Decode each element (in forward order)
+        let mut result_list = Vec::with_capacity(result_list_len);
+        for _ in 0..result_list_len {
+            let result_bytes = decoder.decode_octet_string()?;
+            result_list.push(SetDataResult::decode(&result_bytes)?);
+        }
+
+        Self::new(invoke_id_and_priority, result_list)
+    }
+}
+
 /// Set Request PDU
 ///
 /// CHOICE type representing different SET request variants:
 /// - **Normal**: Single attribute SET request
 /// - **WithFirstDataBlock**: First data block SET request (for large values)
-/// - **WithDataBlock**: Continue data block SET request
+/// - **WithDataBlock**: Continue data block SET request (also called "Next")
 /// - **WithList**: Multiple attribute SET request
 ///
 /// # Why CHOICE Type?
@@ -3680,17 +4121,50 @@ impl SetResponseNormal {
 /// multi-attribute or large-value writes efficiently.
 ///
 /// # Current Implementation Status
-/// Currently only the `Normal` variant is implemented. Other variants (WithDataBlock,
-/// WithList) are planned for future implementation to support large data transfers
-/// and batch operations.
+/// - `Normal`: Single attribute SET request - ✅ Implemented
+/// - `WithList`: Multiple attribute SET request - ✅ Implemented
+/// - `WithFirstDataBlock`: First data block SET request - ⚠️ TODO
+/// - `WithDataBlock`: Continue data block SET request - ✅ Implemented
+///
+/// # Block Transfer Flow
+/// For large attribute values that don't fit in a single PDU:
+/// 1. Client sends SetRequest::WithFirstDataBlock (tag 2) with first block
+/// 2. Server responds with SetResponse::WithDataBlock acknowledging and requesting next
+/// 3. Client sends SetRequest::WithDataBlock (tag 3) with subsequent blocks
+/// 4. When last block received, server responds with SetResponse::Normal
 #[derive(Debug, Clone, PartialEq)]
 pub enum SetRequest {
     /// Single attribute SET request
     Normal(SetRequestNormal),
-    // TODO: Implement other variants
-    // WithFirstDataBlock { ... },
-    // WithDataBlock { ... },
-    // WithList { ... },
+    /// First data block SET request (for large values)
+    /// TODO: Implement WithFirstDataBlock structure
+    WithFirstDataBlock {
+        /// Invoke ID and priority
+        invoke_id_and_priority: InvokeIdAndPriority,
+        /// Attribute descriptor
+        cosem_attribute_descriptor: CosemAttributeDescriptor,
+        /// Access selection (optional)
+        access_selection: Option<SelectiveAccessDescriptor>,
+        /// Block number (starts at 0)
+        block_number: u32,
+        /// Last block flag
+        last_block: bool,
+        /// Block data
+        block_data: Vec<u8>,
+    },
+    /// Continue data block SET request (subsequent blocks, also called "Next")
+    WithDataBlock {
+        /// Invoke ID and priority
+        invoke_id_and_priority: InvokeIdAndPriority,
+        /// Block number
+        block_number: u32,
+        /// Last block flag
+        last_block: bool,
+        /// Block data
+        block_data: Vec<u8>,
+    },
+    /// Multiple attribute SET request
+    WithList(SetRequestWithList),
 }
 
 impl SetRequest {
@@ -3709,6 +4183,69 @@ impl SetRequest {
         ))
     }
 
+    /// Create a new WithList SET request
+    pub fn new_with_list(
+        invoke_id_and_priority: InvokeIdAndPriority,
+        attribute_descriptor_list: Vec<CosemAttributeDescriptor>,
+        access_selection_list: Vec<Option<SelectiveAccessDescriptor>>,
+        value_list: Vec<DataObject>,
+    ) -> DlmsResult<Self> {
+        Ok(Self::WithList(SetRequestWithList::new(
+            invoke_id_and_priority,
+            attribute_descriptor_list,
+            access_selection_list,
+            value_list,
+        )?))
+    }
+
+    /// Create a new WithDataBlock (Next) SET request
+    ///
+    /// # Arguments
+    /// * `invoke_id_and_priority` - Invoke ID and priority
+    /// * `block_number` - Block number (starts at 1 for subsequent blocks)
+    /// * `last_block` - Last block flag
+    /// * `block_data` - Block data
+    pub fn new_with_data_block(
+        invoke_id_and_priority: InvokeIdAndPriority,
+        block_number: u32,
+        last_block: bool,
+        block_data: Vec<u8>,
+    ) -> Self {
+        Self::WithDataBlock {
+            invoke_id_and_priority,
+            block_number,
+            last_block,
+            block_data,
+        }
+    }
+
+    /// Create a new WithFirstDataBlock SET request
+    ///
+    /// # Arguments
+    /// * `invoke_id_and_priority` - Invoke ID and priority
+    /// * `cosem_attribute_descriptor` - Attribute descriptor
+    /// * `access_selection` - Optional access selection
+    /// * `block_number` - Block number (should be 0 for first block)
+    /// * `last_block` - Last block flag
+    /// * `block_data` - Block data
+    pub fn new_with_first_data_block(
+        invoke_id_and_priority: InvokeIdAndPriority,
+        cosem_attribute_descriptor: CosemAttributeDescriptor,
+        access_selection: Option<SelectiveAccessDescriptor>,
+        block_number: u32,
+        last_block: bool,
+        block_data: Vec<u8>,
+    ) -> Self {
+        Self::WithFirstDataBlock {
+            invoke_id_and_priority,
+            cosem_attribute_descriptor,
+            access_selection,
+            block_number,
+            last_block,
+            block_data,
+        }
+    }
+
     /// Encode to A-XDR format
     pub fn encode(&self) -> DlmsResult<Vec<u8>> {
         let mut encoder = AxdrEncoder::new();
@@ -3720,6 +4257,62 @@ impl SetRequest {
                 encoder.encode_bytes(&normal_bytes)?;
                 // Encode choice tag (1 = Normal)
                 encoder.encode_u8(1)?;
+            }
+            SetRequest::WithFirstDataBlock {
+                invoke_id_and_priority,
+                cosem_attribute_descriptor,
+                access_selection,
+                block_number,
+                last_block,
+                block_data,
+            } => {
+                // Encode in reverse order (A-XDR)
+                // 1. block_data (octet string)
+                encoder.encode_octet_string(block_data)?;
+                // 2. last_block (boolean)
+                encoder.encode_bool(*last_block)?;
+                // 3. block_number (unsigned32)
+                encoder.encode_u32(*block_number)?;
+                // 4. access_selection (optional)
+                encoder.encode_bool(access_selection.is_some())?;
+                if let Some(access) = access_selection {
+                    let access_bytes = access.encode()?;
+                    encoder.encode_octet_string(&access_bytes)?;
+                }
+                // 5. cosem_attribute_descriptor (encoded)
+                let desc_bytes = cosem_attribute_descriptor.encode()?;
+                encoder.encode_octet_string(&desc_bytes)?;
+                // 6. invoke_id_and_priority
+                let invoke_bytes = invoke_id_and_priority.encode()?;
+                encoder.encode_octet_string(&invoke_bytes)?;
+                // Encode choice tag (2 = WithFirstDataBlock)
+                encoder.encode_u8(2)?;
+            }
+            SetRequest::WithDataBlock {
+                invoke_id_and_priority,
+                block_number,
+                last_block,
+                block_data,
+            } => {
+                // Encode in reverse order (A-XDR)
+                // 1. block_data (octet string)
+                encoder.encode_octet_string(block_data)?;
+                // 2. last_block (boolean)
+                encoder.encode_bool(*last_block)?;
+                // 3. block_number (unsigned32)
+                encoder.encode_u32(*block_number)?;
+                // 4. invoke_id_and_priority
+                let invoke_bytes = invoke_id_and_priority.encode()?;
+                encoder.encode_octet_string(&invoke_bytes)?;
+                // Encode choice tag (3 = WithDataBlock)
+                encoder.encode_u8(3)?;
+            }
+            SetRequest::WithList(with_list) => {
+                // Encode value first (A-XDR reverse order)
+                let list_bytes = with_list.encode()?;
+                encoder.encode_bytes(&list_bytes)?;
+                // Encode choice tag (4 = WithList)
+                encoder.encode_u8(4)?;
             }
         }
 
@@ -3740,8 +4333,59 @@ impl SetRequest {
                 let normal = SetRequestNormal::decode(&normal_bytes)?;
                 Ok(Self::Normal(normal))
             }
+            2 => {
+                // WithFirstDataBlock variant
+                let invoke_bytes = decoder.decode_octet_string()?;
+                let invoke_id_and_priority = InvokeIdAndPriority::decode(&invoke_bytes)?;
+
+                let desc_bytes = decoder.decode_octet_string()?;
+                let cosem_attribute_descriptor = CosemAttributeDescriptor::decode(&desc_bytes)?;
+
+                let has_access = decoder.decode_bool()?;
+                let access_selection = if has_access {
+                    let access_bytes = decoder.decode_octet_string()?;
+                    Some(SelectiveAccessDescriptor::decode(&access_bytes)?)
+                } else {
+                    None
+                };
+
+                let block_number = decoder.decode_u32()?;
+                let last_block = decoder.decode_bool()?;
+                let block_data = decoder.decode_octet_string()?;
+
+                Ok(Self::WithFirstDataBlock {
+                    invoke_id_and_priority,
+                    cosem_attribute_descriptor,
+                    access_selection,
+                    block_number,
+                    last_block,
+                    block_data,
+                })
+            }
+            3 => {
+                // WithDataBlock variant (Next)
+                let invoke_bytes = decoder.decode_octet_string()?;
+                let invoke_id_and_priority = InvokeIdAndPriority::decode(&invoke_bytes)?;
+
+                let block_number = decoder.decode_u32()?;
+                let last_block = decoder.decode_bool()?;
+                let block_data = decoder.decode_octet_string()?;
+
+                Ok(Self::WithDataBlock {
+                    invoke_id_and_priority,
+                    block_number,
+                    last_block,
+                    block_data,
+                })
+            }
+            4 => {
+                // WithList variant
+                let list_bytes = decoder.decode_octet_string()?;
+                let with_list = SetRequestWithList::decode(&list_bytes)?;
+                Ok(Self::WithList(with_list))
+            }
             _ => Err(DlmsError::InvalidData(format!(
-                "Invalid SetRequest choice tag: {} (expected 1)",
+                "Invalid SetRequest choice tag: {} (expected 1-4)",
                 choice_tag
             ))),
         }
@@ -3752,21 +4396,66 @@ impl SetRequest {
 ///
 /// CHOICE type representing different SET response variants:
 /// - **Normal**: Single attribute SET response
-/// - **WithDataBlock**: Data block SET response
+/// - **WithDataBlock**: Data block SET response (for block transfer)
 /// - **WithList**: Multiple attribute SET response
+///
+/// # Current Implementation Status
+/// - `Normal`: Single attribute SET response - ✅ Implemented
+/// - `WithList`: Multiple attribute SET response - ✅ Implemented
+/// - `WithDataBlock`: Data block SET response - ✅ Implemented
+///
+/// # Block Transfer
+/// When a client sends a large value using SetRequest::WithFirstDataBlock or
+/// SetRequest::WithDataBlock, the server responds with SetResponse::WithDataBlock
+/// to acknowledge receipt and request the next block. When the last block is
+/// received, the server responds with SetResponse::Normal.
 #[derive(Debug, Clone, PartialEq)]
 pub enum SetResponse {
     /// Single attribute SET response
     Normal(SetResponseNormal),
-    // TODO: Implement other variants
-    // WithDataBlock { ... },
-    // WithList { ... },
+    /// Data block SET response (for block transfer acknowledgment)
+    WithDataBlock {
+        /// Invoke ID and priority
+        invoke_id_and_priority: InvokeIdAndPriority,
+        /// Block number being acknowledged
+        block_number: u32,
+        /// Last block flag (indicates this is the final block)
+        last_block: bool,
+    },
+    /// Multiple attribute SET response
+    WithList(SetResponseWithList),
 }
 
 impl SetResponse {
     /// Create a new Normal SET response
     pub fn new_normal(invoke_id_and_priority: InvokeIdAndPriority, result: SetDataResult) -> Self {
         Self::Normal(SetResponseNormal::new(invoke_id_and_priority, result))
+    }
+
+    /// Create a new WithList SET response
+    pub fn new_with_list(
+        invoke_id_and_priority: InvokeIdAndPriority,
+        result_list: Vec<SetDataResult>,
+    ) -> DlmsResult<Self> {
+        Ok(Self::WithList(SetResponseWithList::new(invoke_id_and_priority, result_list)?))
+    }
+
+    /// Create a new WithDataBlock SET response
+    ///
+    /// # Arguments
+    /// * `invoke_id_and_priority` - Invoke ID and priority
+    /// * `block_number` - Block number being acknowledged
+    /// * `last_block` - Last block flag (true if this was the final block)
+    pub fn new_with_data_block(
+        invoke_id_and_priority: InvokeIdAndPriority,
+        block_number: u32,
+        last_block: bool,
+    ) -> Self {
+        Self::WithDataBlock {
+            invoke_id_and_priority,
+            block_number,
+            last_block,
+        }
     }
 
     /// Encode to A-XDR format
@@ -3781,6 +4470,29 @@ impl SetResponse {
                 // Encode choice tag (1 = Normal)
                 encoder.encode_u8(1)?;
             }
+            SetResponse::WithDataBlock {
+                invoke_id_and_priority,
+                block_number,
+                last_block,
+            } => {
+                // Encode in reverse order (A-XDR)
+                // 1. last_block (boolean)
+                encoder.encode_bool(*last_block)?;
+                // 2. block_number (unsigned32)
+                encoder.encode_u32(*block_number)?;
+                // 3. invoke_id_and_priority
+                let invoke_bytes = invoke_id_and_priority.encode()?;
+                encoder.encode_octet_string(&invoke_bytes)?;
+                // Encode choice tag (2 = WithDataBlock)
+                encoder.encode_u8(2)?;
+            }
+            SetResponse::WithList(with_list) => {
+                // Encode value first (A-XDR reverse order)
+                let list_bytes = with_list.encode()?;
+                encoder.encode_bytes(&list_bytes)?;
+                // Encode choice tag (3 = WithList)
+                encoder.encode_u8(3)?;
+            }
         }
 
         Ok(encoder.into_bytes())
@@ -3790,7 +4502,7 @@ impl SetResponse {
     pub fn decode(data: &[u8]) -> DlmsResult<Self> {
         let mut decoder = AxdrDecoder::new(data);
 
-        // Decode choice tag first (A-XDR reverse order)
+        // Decode choice tag first
         let choice_tag = decoder.decode_u8()?;
 
         match choice_tag {
@@ -3800,8 +4512,28 @@ impl SetResponse {
                 let normal = SetResponseNormal::decode(&normal_bytes)?;
                 Ok(Self::Normal(normal))
             }
+            2 => {
+                // WithDataBlock variant
+                let invoke_bytes = decoder.decode_octet_string()?;
+                let invoke_id_and_priority = InvokeIdAndPriority::decode(&invoke_bytes)?;
+
+                let block_number = decoder.decode_u32()?;
+                let last_block = decoder.decode_bool()?;
+
+                Ok(Self::WithDataBlock {
+                    invoke_id_and_priority,
+                    block_number,
+                    last_block,
+                })
+            }
+            3 => {
+                // WithList variant
+                let list_bytes = decoder.decode_octet_string()?;
+                let with_list = SetResponseWithList::decode(&list_bytes)?;
+                Ok(Self::WithList(with_list))
+            }
             _ => Err(DlmsError::InvalidData(format!(
-                "Invalid SetResponse choice tag: {} (expected 1)",
+                "Invalid SetResponse choice tag: {} (expected 1-3)",
                 choice_tag
             ))),
         }

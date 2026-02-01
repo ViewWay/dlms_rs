@@ -78,7 +78,7 @@ impl LowAuth {
 /// High-level security authentication (HLS5-GMAC)
 pub struct Hls5GmacAuth {
     authentication_key: Vec<u8>,
-    encryption_key: Vec<u8>,
+    _encryption_key: Vec<u8>,  // Reserved for future encryption operations
 }
 
 impl Hls5GmacAuth {
@@ -92,7 +92,7 @@ impl Hls5GmacAuth {
 
         Ok(Self {
             authentication_key: authentication_key.to_vec(),
-            encryption_key: encryption_key.to_vec(),
+            _encryption_key: encryption_key.to_vec(),
         })
     }
 

@@ -1,6 +1,6 @@
 //! HDLC dispatcher for handling frame routing
 
-use crate::error::{DlmsError, DlmsResult};
+use crate::error::DlmsResult;
 use crate::hdlc::frame::HdlcFrame;
 use crate::hdlc::address::HdlcAddress;
 use std::collections::VecDeque;
@@ -140,11 +140,10 @@ impl HdlcDispatcher {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::hdlc::address::HdlcAddressPair;
 
     #[test]
     fn test_message_queue() {
-        let mut queue = HdlcMessageQueue::new();
+        let queue = HdlcMessageQueue::new();
         assert!(queue.is_empty());
         
         // Note: Would need a frame to test, but frame creation requires more setup

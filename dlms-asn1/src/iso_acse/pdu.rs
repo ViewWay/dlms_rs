@@ -20,7 +20,7 @@
 //! tags to identify them.
 
 use crate::error::{DlmsError, DlmsResult};
-use crate::ber::{BerEncoder, BerDecoder, BerTag, BerTagClass, BerLength};
+use crate::ber::{BerEncoder, BerDecoder, BerTag, BerTagClass};
 use super::types::*;
 
 /// AARQ (Association Request) PDU

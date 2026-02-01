@@ -8,9 +8,8 @@ use crate::hdlc::frame::{FrameType, HdlcFrame, FLAG, LLC_REQUEST, LLC_RESPONSE};
 use crate::hdlc::statistics::HdlcStatistics;
 use crate::hdlc::window::{SendWindow, ReceiveWindow};
 use crate::hdlc::state::HdlcConnectionState;
-use dlms_transport::{StreamAccessor, TransportLayer};
+use dlms_transport::TransportLayer;
 use std::time::{Duration, Instant};
-use tokio::sync::mpsc;
 
 /// HDLC connection parameters
 ///
@@ -370,11 +369,6 @@ impl SegmentedFrameReassembler {
         self.expected_sequence = 0;
         self.last_receive_time = None;
     }
-
-    /// Get current message length
-    pub fn current_length(&self) -> usize {
-        self.current_message.len()
-    }
 }
 
 impl Default for SegmentedFrameReassembler {
@@ -395,27 +389,27 @@ pub struct HdlcConnection<T: TransportLayer> {
     transport: T,
     local_address: HdlcAddress,
     remote_address: HdlcAddress,
-    dispatcher: HdlcDispatcher,
+    _dispatcher: HdlcDispatcher,  // Reserved for future use
     parameters: HdlcParameters,
     send_sequence: u8,
-    receive_sequence: u8,
+    _receive_sequence: u8,  // Reserved for future use
     /// Connection state
     state: HdlcConnectionState,
     /// Segmented frame reassembler for automatic RR frame sending
     reassembler: SegmentedFrameReassembler,
     /// Whether to use LLC header for Information frames
-    /// 
+    ///
     /// According to DLMS standard (IEC 62056-47), LLC header [0xE6, 0xE6, 0x00]
     /// should be prepended to Information frame data. This is enabled by default
     /// for protocol compliance, but can be disabled for compatibility with devices
     /// that don't expect LLC header.
     use_llc_header: bool,
     /// Whether this connection is acting as a client (true) or server (false)
-    /// 
+    ///
     /// This determines which LLC header to use when sending Information frames:
     /// - Client: Uses LLC_REQUEST [0xE6, 0xE6, 0x00] for requests
     /// - Server: Uses LLC_RESPONSE [0xE6, 0xE7, 0x00] for responses
-    /// 
+    ///
     /// According to DLMS standard (IEC 62056-47), the second byte of the LLC header
     /// is 0xE6 for requests (client -> server) and 0xE7 for responses (server -> client).
     is_client: bool,
@@ -425,10 +419,10 @@ pub struct HdlcConnection<T: TransportLayer> {
     send_window: SendWindow,
     /// Receive window for sequence number tracking
     receive_window: ReceiveWindow,
-    /// Retransmission timeout (default: 3 seconds)
-    retransmit_timeout: Duration,
-    /// Maximum retransmission attempts (default: 3)
-    max_retries: u8,
+    /// Retransmission timeout (default: 3 seconds) - reserved for future use
+    _retransmit_timeout: Duration,
+    /// Maximum retransmission attempts (default: 3) - reserved for future use
+    _max_retries: u8,
 }
 
 impl<T: TransportLayer> HdlcConnection<T> {
@@ -451,15 +445,15 @@ impl<T: TransportLayer> HdlcConnection<T> {
         local_address: HdlcAddress,
         remote_address: HdlcAddress,
     ) -> Self {
-        let dispatcher = HdlcDispatcher::new(local_address);
+        let _dispatcher = HdlcDispatcher::new(local_address);
         Self {
             transport,
             local_address,
             remote_address,
-            dispatcher,
+            _dispatcher,
             parameters: HdlcParameters::default(),
             send_sequence: 0,
-            receive_sequence: 0,
+            _receive_sequence: 0,
             state: HdlcConnectionState::Closed,
             reassembler: SegmentedFrameReassembler::new(),
             use_llc_header: true, // Enable LLC header by default for protocol compliance
@@ -471,8 +465,8 @@ impl<T: TransportLayer> HdlcConnection<T> {
                 3, // Default max retries
             ),
             receive_window: ReceiveWindow::new(),
-            retransmit_timeout: Duration::from_secs(3),
-            max_retries: 3,
+            _retransmit_timeout: Duration::from_secs(3),
+            _max_retries: 3,
         }
     }
 
@@ -907,13 +901,13 @@ impl<T: TransportLayer> HdlcConnection<T> {
     /// Checks for timed-out frames and retransmits them.
     async fn handle_retransmissions(&mut self) -> DlmsResult<()> {
         let retransmissions = self.send_window.get_retransmissions();
-        
-        for (sequence, encoded_bytes) in retransmissions {
+
+        for (_sequence, encoded_bytes) in retransmissions {
             // Retransmit the frame
             self.send_frame_bytes(&encoded_bytes).await?;
             self.statistics.increment_retransmissions();
         }
-        
+
         Ok(())
     }
 
@@ -1019,7 +1013,7 @@ impl<T: TransportLayer> HdlcConnection<T> {
                 
                 // Process received sequence (N(S) in received frame)
                 // Validate sequence number using receive window
-                if let Err(e) = self.receive_window.accept(send_seq) {
+                if let Err(_e) = self.receive_window.accept(send_seq) {
                     // Sequence mismatch - reject this frame
                     self.statistics.increment_sequence_errors();
                     // Continue to next frame

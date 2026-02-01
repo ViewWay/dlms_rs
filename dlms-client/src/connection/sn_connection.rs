@@ -44,7 +44,7 @@ use dlms_application::pdu::{
 use dlms_core::{DlmsError, DlmsResult, DataObject};
 use dlms_session::hdlc::{HdlcConnection, HdlcAddress};
 use dlms_session::wrapper::WrapperSession;
-use dlms_transport::{TcpTransport, SerialTransport, TcpSettings, SerialSettings, TransportLayer};
+use dlms_transport::{TcpTransport, SerialTransport, TcpSettings, SerialSettings};
 use dlms_security::SecuritySuite;
 use std::time::Duration;
 use std::net::SocketAddr;

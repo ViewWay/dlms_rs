@@ -3,7 +3,6 @@
 use crate::error::{DlmsError, DlmsResult};
 use crate::axdr::types::{AxdrTag, LengthEncoding};
 use dlms_core::datatypes::*;
-use std::io::Read;
 
 /// A-XDR decoder for decoding DLMS/COSEM data types
 pub struct AxdrDecoder<'a> {
@@ -103,9 +102,9 @@ impl<'a> AxdrDecoder<'a> {
                 Ok(DataObject::new_structure(value))
             }
             AxdrTag::CompactArray => {
-                return Err(DlmsError::InvalidData(
-                    "CompactArray decoding not yet implemented".to_string(),
-                ));
+                let octet_string = self.decode_octet_string()?;
+                let compact_array = CompactArray::decode(&octet_string)?;
+                Ok(DataObject::new_compact_array(compact_array))
             }
             AxdrTag::Date => {
                 let bytes = self.decode_fixed_bytes(CosemDate::LENGTH)?;
@@ -361,5 +360,23 @@ mod tests {
         let mut decoder = AxdrDecoder::new(&bytes);
         let obj = decoder.decode_data_object().unwrap();
         assert_eq!(obj.as_integer32().unwrap(), 0x12345678);
+    }
+
+    #[test]
+    fn test_decode_float32() {
+        // IEEE 754: 1.0 = 0x3F800000, tag for Float32 is 0x17
+        let bytes = [0x17, 0x3F, 0x80, 0x00, 0x00];
+        let mut decoder = AxdrDecoder::new(&bytes);
+        let obj = decoder.decode_data_object().unwrap();
+        assert!((obj.as_float32().unwrap() - 1.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn test_decode_float64() {
+        // IEEE 754: 1.0 = 0x3FF0000000000000, tag for Float64 is 0x18
+        let bytes = [0x18, 0x3F, 0xF0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+        let mut decoder = AxdrDecoder::new(&bytes);
+        let obj = decoder.decode_data_object().unwrap();
+        assert!((obj.as_float64().unwrap() - 1.0).abs() < f64::EPSILON);
     }
 }

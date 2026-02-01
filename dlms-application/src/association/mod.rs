@@ -57,7 +57,9 @@ use std::fmt;
 
 // Re-export for convenience in this module
 use crate::pdu::{InitiateRequest, InitiateResponse};
-use dlms_asn1::iso_acse::{AARQApdu, AAREApdu, RLRQApdu, RLREApdu, AssociateResult, AssociateSourceDiagnostic};
+use dlms_asn1::iso_acse::{AARQApdu, AAREApdu, RLRQApdu, RLREApdu, AssociateResult};
+#[allow(unused_imports)] // Used in tests
+use dlms_asn1::iso_acse::AssociateSourceDiagnostic;
 use dlms_core::DlmsResult;
 
 /// Events emitter for internal use

@@ -48,7 +48,4 @@ log = "0.4.29"
 regex = "1.12.2"
 async-trait = "0.1"
 rand = "0.8"
-
-[workspace.dev-dependencies]
-tokio-test = "0.4.5"
-mockall = "0.14.0"
+futures = "0.3"

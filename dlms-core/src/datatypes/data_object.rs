@@ -2,7 +2,7 @@
 
 use crate::error::{DlmsError, DlmsResult};
 use crate::datatypes::bit_string::BitString;
-use crate::datatypes::cosem_date::{CosemDate, CosemDateFormat};
+use crate::datatypes::cosem_date::CosemDate;
 use crate::datatypes::cosem_time::CosemTime;
 use crate::datatypes::cosem_date_time::CosemDateTime;
 use crate::datatypes::compact_array::CompactArray;
@@ -382,6 +382,28 @@ impl DataObject {
             DataObject::Unsigned32(u) => Ok(*u),
             _ => Err(DlmsError::InvalidData(format!(
                 "Expected Unsigned32, got {:?}",
+                self.get_type()
+            ))),
+        }
+    }
+
+    /// Get the value as a float 32
+    pub fn as_float32(&self) -> DlmsResult<f32> {
+        match self {
+            DataObject::Float32(f) => Ok(*f),
+            _ => Err(DlmsError::InvalidData(format!(
+                "Expected Float32, got {:?}",
+                self.get_type()
+            ))),
+        }
+    }
+
+    /// Get the value as a float 64
+    pub fn as_float64(&self) -> DlmsResult<f64> {
+        match self {
+            DataObject::Float64(f) => Ok(*f),
+            _ => Err(DlmsError::InvalidData(format!(
+                "Expected Float64, got {:?}",
                 self.get_type()
             ))),
         }

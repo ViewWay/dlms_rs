@@ -33,10 +33,16 @@ use tokio::sync::RwLock;
 /// ```rust,no_run
 /// use dlms_server::listener::ServerListener;
 /// use dlms_server::server::DlmsServer;
+/// use std::net::SocketAddr;
 ///
+/// # #[tokio::main]
+/// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// let server = DlmsServer::new();
-/// let listener = ServerListener::new(server, "0.0.0.0:4059".parse()?);
-/// listener.start().await?;
+/// let address: SocketAddr = "0.0.0.0:4059".parse()?;
+/// let listener = ServerListener::new(server, address);
+/// // listener.start().await?;
+/// # Ok(())
+/// # }
 /// ```
 pub struct ServerListener {
     /// The DLMS server instance

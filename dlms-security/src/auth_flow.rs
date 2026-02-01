@@ -37,9 +37,9 @@
 //! ```
 
 use crate::error::{DlmsError, DlmsResult};
-use crate::authentication::{LowAuth, Hls5GmacAuth, GmacAuth};
+use crate::authentication::{LowAuth, Hls5GmacAuth};
 use rand::RngCore;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::SystemTime;
 
 /// Authentication mechanism type
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

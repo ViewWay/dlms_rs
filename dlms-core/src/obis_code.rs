@@ -70,7 +70,7 @@ impl ObisCode {
         Ok(Self { bytes })
     }
     
-    fn parse_extended_format(s: &str) -> DlmsResult<Self> {
+    fn parse_extended_format(_s: &str) -> DlmsResult<Self> {
         // TODO: Implement extended format parsing
         // Format: "A-B:C.D.E*F" or "A-B:C.D.E"
         Err(DlmsError::InvalidData("Extended format not yet implemented".to_string()))

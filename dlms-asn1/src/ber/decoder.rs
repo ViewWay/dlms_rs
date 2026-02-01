@@ -63,24 +63,6 @@ impl<'a> BerDecoder<'a> {
         self.position < self.buffer.len()
     }
 
-    /// Read a byte from the buffer
-    ///
-    /// # Returns
-    /// Returns the byte at current position, advancing the position.
-    ///
-    /// # Error Handling
-    /// Returns error if buffer is exhausted.
-    fn read_byte(&mut self) -> DlmsResult<u8> {
-        if self.position >= self.buffer.len() {
-            return Err(DlmsError::InvalidData(
-                "Buffer exhausted while reading byte".to_string(),
-            ));
-        }
-        let byte = self.buffer[self.position];
-        self.position += 1;
-        Ok(byte)
-    }
-
     /// Read multiple bytes from the buffer
     ///
     /// # Arguments
@@ -201,6 +183,81 @@ impl<'a> BerDecoder<'a> {
         }
 
         Ok(value)
+    }
+
+    /// Decode a BOOLEAN
+    ///
+    /// # Returns
+    /// Returns the decoded boolean value.
+    ///
+    /// # Decoding Format
+    /// BOOLEAN is decoded from:
+    /// - Tag: Universal, Primitive, tag 1
+    /// - Length: 1
+    /// - Value: 0x00 for false, any non-zero for true
+    ///
+    /// # Error Handling
+    /// Returns error if tag is not BOOLEAN.
+    pub fn decode_boolean(&mut self) -> DlmsResult<bool> {
+        let (tag, value, _) = self.decode_tlv()?;
+
+        // Verify tag
+        if tag.class() != crate::ber::types::BerTagClass::Universal
+            || tag.is_constructed()
+            || tag.number() != 1
+        {
+            return Err(DlmsError::InvalidData(format!(
+                "Expected BOOLEAN tag, got {:?}",
+                tag
+            )));
+        }
+
+        // Any non-zero value is true
+        Ok(!value.is_empty() && value[0] != 0)
+    }
+
+    /// Decode an unsigned INTEGER (u64)
+    ///
+    /// # Returns
+    /// Returns the decoded unsigned integer value.
+    ///
+    /// # Decoding Format
+    /// Same as INTEGER decoding, but returns u64.
+    ///
+    /// # Error Handling
+    /// Returns error if tag is not INTEGER or value is too large for u64.
+    pub fn decode_unsigned_integer(&mut self) -> DlmsResult<u64> {
+        let (tag, value, _) = self.decode_tlv()?;
+
+        // Verify tag
+        if tag.class() != crate::ber::types::BerTagClass::Universal
+            || tag.is_constructed()
+            || tag.number() != 2
+        {
+            return Err(DlmsError::InvalidData(format!(
+                "Expected INTEGER tag, got {:?}",
+                tag
+            )));
+        }
+
+        if value.is_empty() {
+            return Err(DlmsError::InvalidData("Empty integer encoding".to_string()));
+        }
+
+        if value.len() > 8 {
+            return Err(DlmsError::InvalidData(format!(
+                "Integer too large: {} bytes (max 8)",
+                value.len()
+            )));
+        }
+
+        // Build value (big-endian)
+        let mut result = 0u64;
+        for &byte in value {
+            result = (result << 8) | (byte as u64);
+        }
+
+        Ok(result)
     }
 
     /// Decode an OCTET STRING

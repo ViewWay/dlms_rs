@@ -36,12 +36,16 @@ use dlms_application::pdu::SelectiveAccessDescriptor;
 use crate::CosemObject;
 use std::sync::Arc;
 use tokio::sync::RwLock;
+use std::collections::HashMap;
+use tokio::sync::Mutex;
+
+/// Callback function type for value change notifications
+pub type RegisterChangeCallback = Arc<dyn Fn(&DataObject) + Send + Sync>;
 
 /// Register interface class (Class ID: 3)
 ///
 /// Represents a single register value with scaling factor and unit information.
 /// This is one of the most commonly used interface classes in DLMS/COSEM.
-#[derive(Debug, Clone)]
 pub struct Register {
     /// Logical name (OBIS code) of this object
     logical_name: ObisCode,
@@ -51,6 +55,36 @@ pub struct Register {
     scaler_unit: Arc<RwLock<ScalerUnit>>,
     /// Optional status value
     status: Arc<RwLock<Option<u8>>>,
+    /// Change notification callbacks
+    change_callbacks: Arc<Mutex<HashMap<String, RegisterChangeCallback>>>,
+    /// Enable/disable change notifications
+    notifications_enabled: Arc<RwLock<bool>>,
+}
+
+impl std::fmt::Debug for Register {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Register")
+            .field("logical_name", &self.logical_name)
+            .field("value", &"<RwLock<DataObject>>")
+            .field("scaler_unit", &"<RwLock<ScalerUnit>>")
+            .field("status", &"<RwLock<Option<u8>>>")
+            .field("change_callbacks", &"<callbacks>")
+            .field("notifications_enabled", &"<RwLock<bool>>")
+            .finish()
+    }
+}
+
+impl Clone for Register {
+    fn clone(&self) -> Self {
+        Self {
+            logical_name: self.logical_name,
+            value: self.value.clone(),
+            scaler_unit: self.scaler_unit.clone(),
+            status: self.status.clone(),
+            change_callbacks: self.change_callbacks.clone(),
+            notifications_enabled: self.notifications_enabled.clone(),
+        }
+    }
 }
 
 impl Register {
@@ -75,6 +109,8 @@ impl Register {
             value: Arc::new(RwLock::new(value)),
             scaler_unit: Arc::new(RwLock::new(scaler_unit)),
             status: Arc::new(RwLock::new(status)),
+            change_callbacks: Arc::new(Mutex::new(HashMap::new())),
+            notifications_enabled: Arc::new(RwLock::new(true)),
         }
     }
 
@@ -90,8 +126,18 @@ impl Register {
     ///
     /// # Arguments
     /// * `new_value` - New register value to set
+    ///
+    /// This will trigger change notification callbacks if the value differs.
     pub async fn set_value(&self, new_value: DataObject) {
-        *self.value.write().await = new_value;
+        let old_value = self.value.read().await.clone();
+        let value_changed = old_value != new_value;
+
+        *self.value.write().await = new_value.clone();
+
+        // Trigger change notifications if enabled and value changed
+        if value_changed && *self.notifications_enabled.read().await {
+            self.notify_change(&new_value).await;
+        }
     }
 
     /// Get the scaler unit
@@ -152,6 +198,210 @@ impl Register {
             }
         };
         Ok(scaler_unit.scale_value(numeric_value))
+    }
+
+    /// Register a callback for value change notifications
+    ///
+    /// # Arguments
+    /// * `id` - Unique identifier for this callback
+    /// * `callback` - Function to call when value changes
+    ///
+    /// # Returns
+    /// Ok(()) if registered, error if ID already exists
+    pub async fn register_change_callback(&self, id: String, callback: RegisterChangeCallback) -> DlmsResult<()> {
+        let mut callbacks = self.change_callbacks.lock().await;
+        if callbacks.contains_key(&id) {
+            return Err(DlmsError::InvalidData(format!(
+                "Callback with id '{}' already exists",
+                id
+            )));
+        }
+        callbacks.insert(id, callback);
+        Ok(())
+    }
+
+    /// Unregister a change callback
+    ///
+    /// # Arguments
+    /// * `id` - Identifier of the callback to remove
+    ///
+    /// # Returns
+    /// Ok(()) if removed, error if ID not found
+    pub async fn unregister_change_callback(&self, id: &str) -> DlmsResult<()> {
+        let mut callbacks = self.change_callbacks.lock().await;
+        callbacks.remove(id).ok_or_else(|| {
+            DlmsError::InvalidData(format!("Callback with id '{}' not found", id))
+        })?;
+        Ok(())
+    }
+
+    /// Enable or disable change notifications
+    pub async fn set_notifications_enabled(&self, enabled: bool) {
+        *self.notifications_enabled.write().await = enabled;
+    }
+
+    /// Check if change notifications are enabled
+    pub async fn notifications_enabled(&self) -> bool {
+        *self.notifications_enabled.read().await
+    }
+
+    /// Get the number of registered callbacks
+    pub async fn callback_count(&self) -> usize {
+        self.change_callbacks.lock().await.len()
+    }
+
+    /// Notify all registered callbacks of a value change
+    async fn notify_change(&self, new_value: &DataObject) {
+        let callbacks = self.change_callbacks.lock().await;
+        for callback in callbacks.values() {
+            callback(new_value);
+        }
+    }
+
+    /// Add a value to the current value (for numeric registers)
+    ///
+    /// # Arguments
+    /// * `delta` - Value to add (can be negative for subtraction)
+    ///
+    /// # Returns
+    /// Ok(()) if successful, error if value is not numeric
+    pub async fn add(&self, delta: i64) -> DlmsResult<()> {
+        let current = self.value().await;
+        let new_value = match current {
+            DataObject::Integer8(v) => DataObject::Integer8((v as i64 + delta) as i8),
+            DataObject::Integer16(v) => DataObject::Integer16((v as i64 + delta) as i16),
+            DataObject::Integer32(v) => DataObject::Integer32((v as i64 + delta) as i32),
+            DataObject::Integer64(v) => DataObject::Integer64(v + delta),
+            DataObject::Unsigned8(v) => {
+                if delta >= 0 {
+                    DataObject::Unsigned8((v as i64 + delta) as u8)
+                } else {
+                    return Err(DlmsError::InvalidData(
+                        "Cannot subtract from unsigned value".to_string(),
+                    ));
+                }
+            }
+            DataObject::Unsigned16(v) => {
+                if delta >= 0 {
+                    DataObject::Unsigned16((v as i64 + delta) as u16)
+                } else {
+                    return Err(DlmsError::InvalidData(
+                        "Cannot subtract from unsigned value".to_string(),
+                    ));
+                }
+            }
+            DataObject::Unsigned32(v) => {
+                if delta >= 0 {
+                    DataObject::Unsigned32((v as i64 + delta) as u32)
+                } else {
+                    return Err(DlmsError::InvalidData(
+                        "Cannot subtract from unsigned value".to_string(),
+                    ));
+                }
+            }
+            DataObject::Unsigned64(v) => {
+                if delta >= 0 {
+                    DataObject::Unsigned64((v as i64 + delta) as u64)
+                } else {
+                    return Err(DlmsError::InvalidData(
+                        "Cannot subtract from unsigned value".to_string(),
+                    ));
+                }
+            }
+            DataObject::Float32(v) => DataObject::Float32(v + delta as f32),
+            DataObject::Float64(v) => DataObject::Float64(v + delta as f64),
+            _ => {
+                return Err(DlmsError::InvalidData(
+                    "Cannot add to non-numeric value".to_string(),
+                ));
+            }
+        };
+        self.set_value(new_value).await;
+        Ok(())
+    }
+
+    /// Multiply the current value by a factor
+    ///
+    /// # Arguments
+    /// * `factor` - Multiplication factor
+    ///
+    /// # Returns
+    /// Ok(()) if successful, error if value is not numeric
+    pub async fn multiply(&self, factor: f64) -> DlmsResult<()> {
+        let current = self.value().await;
+        let new_value = match current {
+            DataObject::Integer8(v) => DataObject::Integer8((v as f64 * factor) as i8),
+            DataObject::Integer16(v) => DataObject::Integer16((v as f64 * factor) as i16),
+            DataObject::Integer32(v) => DataObject::Integer32((v as f64 * factor) as i32),
+            DataObject::Integer64(v) => DataObject::Integer64((v as f64 * factor) as i64),
+            DataObject::Unsigned8(v) => DataObject::Unsigned8((v as f64 * factor) as u8),
+            DataObject::Unsigned16(v) => DataObject::Unsigned16((v as f64 * factor) as u16),
+            DataObject::Unsigned32(v) => DataObject::Unsigned32((v as f64 * factor) as u32),
+            DataObject::Unsigned64(v) => DataObject::Unsigned64((v as f64 * factor) as u64),
+            DataObject::Float32(v) => DataObject::Float32(v * factor as f32),
+            DataObject::Float64(v) => DataObject::Float64(v * factor),
+            _ => {
+                return Err(DlmsError::InvalidData(
+                    "Cannot multiply non-numeric value".to_string(),
+                ));
+            }
+        };
+        self.set_value(new_value).await;
+        Ok(())
+    }
+
+    /// Reset the value to zero
+    pub async fn reset(&self) -> DlmsResult<()> {
+        let current = self.value().await;
+        let zero_value = match current {
+            DataObject::Integer8(_) => DataObject::Integer8(0),
+            DataObject::Integer16(_) => DataObject::Integer16(0),
+            DataObject::Integer32(_) => DataObject::Integer32(0),
+            DataObject::Integer64(_) => DataObject::Integer64(0),
+            DataObject::Unsigned8(_) => DataObject::Unsigned8(0),
+            DataObject::Unsigned16(_) => DataObject::Unsigned16(0),
+            DataObject::Unsigned32(_) => DataObject::Unsigned32(0),
+            DataObject::Unsigned64(_) => DataObject::Unsigned64(0),
+            DataObject::Float32(_) => DataObject::Float32(0.0),
+            DataObject::Float64(_) => DataObject::Float64(0.0),
+            _ => {
+                return Err(DlmsError::InvalidData(
+                    "Cannot reset non-numeric value".to_string(),
+                ));
+            }
+        };
+        self.set_value(zero_value).await;
+        Ok(())
+    }
+
+    /// Get the data type of the current value
+    pub async fn value_type(&self) -> &'static str {
+        match self.value().await {
+            DataObject::Integer8(_) => "Integer8",
+            DataObject::Integer16(_) => "Integer16",
+            DataObject::Integer32(_) => "Integer32",
+            DataObject::Integer64(_) => "Integer64",
+            DataObject::Unsigned8(_) => "Unsigned8",
+            DataObject::Unsigned16(_) => "Unsigned16",
+            DataObject::Unsigned32(_) => "Unsigned32",
+            DataObject::Unsigned64(_) => "Unsigned64",
+            DataObject::Float32(_) => "Float32",
+            DataObject::Float64(_) => "Float64",
+            _ => "Other",
+        }
+    }
+
+    /// Check if the current value is within a specified range
+    ///
+    /// # Arguments
+    /// * `min` - Minimum allowed value (inclusive)
+    /// * `max` - Maximum allowed value (inclusive)
+    ///
+    /// # Returns
+    /// true if value is within range, false otherwise
+    pub async fn is_within_range(&self, min: f64, max: f64) -> DlmsResult<bool> {
+        let scaled = self.scaled_value().await?;
+        Ok(scaled >= min && scaled <= max)
     }
 }
 
@@ -364,6 +614,150 @@ mod tests {
 
         // Try to set non-existent attribute
         let result = register.set_attribute(99, DataObject::Integer32(0), None).await;
+        assert!(result.is_err());
+    }
+
+    // Tests for enhanced functionality
+
+    #[tokio::test]
+    async fn test_register_add() {
+        let obis = ObisCode::new(1, 1, 1, 8, 0, 255);
+        let value = DataObject::Unsigned32(100);
+        let scaler_unit = ScalerUnit::new(0, 0x1E);
+        let register = Register::new(obis, value, scaler_unit, None);
+
+        register.add(50).await.unwrap();
+        let current = register.value().await;
+        match current {
+            DataObject::Unsigned32(v) => assert_eq!(v, 150),
+            _ => panic!("Expected Unsigned32"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_register_multiply() {
+        let obis = ObisCode::new(1, 1, 1, 8, 0, 255);
+        let value = DataObject::Unsigned32(100);
+        let scaler_unit = ScalerUnit::new(0, 0x1E);
+        let register = Register::new(obis, value, scaler_unit, None);
+
+        register.multiply(2.0).await.unwrap();
+        let current = register.value().await;
+        match current {
+            DataObject::Unsigned32(v) => assert_eq!(v, 200),
+            _ => panic!("Expected Unsigned32"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_register_reset() {
+        let obis = ObisCode::new(1, 1, 1, 8, 0, 255);
+        let value = DataObject::Unsigned32(12345);
+        let scaler_unit = ScalerUnit::new(0, 0x1E);
+        let register = Register::new(obis, value, scaler_unit, None);
+
+        register.reset().await.unwrap();
+        let current = register.value().await;
+        match current {
+            DataObject::Unsigned32(v) => assert_eq!(v, 0),
+            _ => panic!("Expected Unsigned32"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_register_value_type() {
+        let obis = ObisCode::new(1, 1, 1, 8, 0, 255);
+        let value = DataObject::Unsigned32(12345);
+        let scaler_unit = ScalerUnit::new(0, 0x1E);
+        let register = Register::new(obis, value, scaler_unit, None);
+
+        assert_eq!(register.value_type().await, "Unsigned32");
+    }
+
+    #[tokio::test]
+    async fn test_register_is_within_range() {
+        let obis = ObisCode::new(1, 1, 1, 8, 0, 255);
+        let value = DataObject::Unsigned32(50);
+        let scaler_unit = ScalerUnit::new(0, 0x1E);
+        let register = Register::new(obis, value, scaler_unit, None);
+
+        assert!(register.is_within_range(0.0, 100.0).await.unwrap());
+        assert!(!register.is_within_range(100.0, 200.0).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_register_change_callback() {
+        use std::sync::atomic::{AtomicU32, Ordering};
+
+        let obis = ObisCode::new(1, 1, 1, 8, 0, 255);
+        let value = DataObject::Unsigned32(100);
+        let scaler_unit = ScalerUnit::new(0, 0x1E);
+        let register = Register::new(obis, value, scaler_unit, None);
+
+        let call_count = Arc::new(AtomicU32::new(0));
+        let call_count_clone = call_count.clone();
+
+        register.register_change_callback(
+            "test_callback".to_string(),
+            Arc::new(move |_new_value| {
+                call_count_clone.fetch_add(1, Ordering::SeqCst);
+            }),
+        ).await.unwrap();
+
+        register.set_value(DataObject::Unsigned32(200)).await;
+        assert_eq!(call_count.load(Ordering::SeqCst), 1);
+        assert_eq!(register.callback_count().await, 1);
+
+        // Unregister and verify no more calls
+        register.unregister_change_callback("test_callback").await.unwrap();
+        register.set_value(DataObject::Unsigned32(300)).await;
+        assert_eq!(call_count.load(Ordering::SeqCst), 1); // Still 1, not 2
+    }
+
+    #[tokio::test]
+    async fn test_register_notifications_disabled() {
+        use std::sync::atomic::{AtomicU32, Ordering};
+
+        let obis = ObisCode::new(1, 1, 1, 8, 0, 255);
+        let value = DataObject::Unsigned32(100);
+        let scaler_unit = ScalerUnit::new(0, 0x1E);
+        let register = Register::new(obis, value, scaler_unit, None);
+
+        let call_count = Arc::new(AtomicU32::new(0));
+        let call_count_clone = call_count.clone();
+
+        register.register_change_callback(
+            "test_callback".to_string(),
+            Arc::new(move |_new_value| {
+                call_count_clone.fetch_add(1, Ordering::SeqCst);
+            }),
+        ).await.unwrap();
+
+        // Disable notifications
+        register.set_notifications_enabled(false).await;
+        assert!(!register.notifications_enabled().await);
+
+        register.set_value(DataObject::Unsigned32(200)).await;
+        assert_eq!(call_count.load(Ordering::SeqCst), 0); // No call made
+
+        // Re-enable
+        register.set_notifications_enabled(true).await;
+        register.set_value(DataObject::Unsigned32(300)).await;
+        assert_eq!(call_count.load(Ordering::SeqCst), 1); // Call made
+    }
+
+    #[tokio::test]
+    async fn test_register_no_duplicate_callback_id() {
+        let obis = ObisCode::new(1, 1, 1, 8, 0, 255);
+        let value = DataObject::Unsigned32(100);
+        let scaler_unit = ScalerUnit::new(0, 0x1E);
+        let register = Register::new(obis, value, scaler_unit, None);
+
+        let callback = Arc::new(|_new_value| {});
+        register.register_change_callback("test".to_string(), callback.clone()).await.unwrap();
+
+        // Try to register with same ID
+        let result = register.register_change_callback("test".to_string(), callback).await;
         assert!(result.is_err());
     }
 }

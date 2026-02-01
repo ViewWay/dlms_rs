@@ -1,42 +1,162 @@
-//! Application layer module for DLMS/COSEM protocol
+//! DLMS/COSEM Application Layer
 //!
-//! This crate provides application layer functionality including PDU handling and services.
+//! This crate provides the DLMS/COSEM application layer protocol implementation,
+//! including all PDU (Protocol Data Unit) types, service handlers, and addressing modes.
 //!
-//! # TODO
+//! # Overview
 //!
-//! ## PDU (Protocol Data Unit)
-//! - [x] Initiate Request PDU 编码/解码
-//! - [x] Initiate Response PDU 编码/解码
-//! - [x] Get Request PDU 编码/解码（Normal、Next和WithList已完整实现）
-//! - [x] Get Response PDU 编码/解码（Normal、WithDataBlock和WithList已完整实现）
-//! - [x] Get Request Next PDU 完整实现（已验证和完善）
-//! - [x] Get Request WithList PDU 完整实现
-//! - [x] Get Response WithDataBlock PDU 完整实现（已验证和完善）
-//! - [x] Get Response WithList PDU 完整实现
-//! - [x] Set Request PDU 编码/解码（Normal类型已实现）
-//! - [x] Set Response PDU 编码/解码（Normal类型已实现）
-//! - [x] Action Request PDU 编码/解码（Normal类型已实现）
-//! - [x] Action Response PDU 编码/解码（Normal类型已实现）
-//! - [x] Event Notification PDU 编码/解码
-//! - [x] Access Request PDU 编码/解码（完整实现）
-//! - [x] Access Response PDU 编码/解码（完整实现）
-//! - [x] Exception Response PDU 编码/解码
+//! The DLMS application layer defines the protocol data units (PDUs) exchanged
+//! between client and server for reading/writing meter data, invoking methods,
+//! and handling events.
 //!
-//! ## 服务层
-//! - [x] GET 服务实现（基础功能已实现，支持WithList和WithDataBlock）
-//! - [x] SET 服务实现（基础功能已实现）
-//! - [x] ACTION 服务实现（基础功能已实现）
-//! - [x] Event Notification 服务实现
-//! - [x] 服务错误处理增强（使用标准错误码常量和描述）
-//! - [x] 服务响应处理增强（支持WithList和WithDataBlock）
+//! ## PDU Types
 //!
-//! ## 寻址
-//! - [x] 逻辑名称（LN）寻址（LogicalNameReference）
-//! - [x] 短名称（SN）寻址（ShortNameReference）
-//! - [x] 类 ID 和属性/方法 ID 处理
-//! - [x] OBIS 代码到对象引用转换
-//! - [x] 访问选择器处理（AccessSelector，完整实现）
-//! - [x] 完整的访问选择器支持（EntryIndex、DateRange、ValueRange）
+//! The application layer supports several types of requests and responses:
+//!
+//! - **Initiate**: Connection establishment and capability negotiation
+//! - **Get**: Read attribute values from COSEM objects
+//! - **Set**: Write attribute values to COSEM objects
+//! - **Action**: Invoke methods on COSEM objects
+//! - **Access**: Combined GET/SET/ACTION operations in a single request
+//! - **Event**: Notification of events from meter to client
+//! - **Exception**: Error reporting
+//!
+//! # Get Request Example
+//!
+//! ```rust,ignore
+//! use dlms_application::{GetRequest, GetRequestNormal, InvokeIdAndPriority};
+//! use dlms_application::{CosemAttributeDescriptor, LogicalNameReference};
+//! use dlms_core::ObisCode;
+//!
+//! // Create a normal GET request for attribute 2 (value) of a register
+//! let invoke_id = InvokeIdAndPriority::new(1, false)?;
+//! let descriptor = CosemAttributeDescriptor::LogicalName(LogicalNameReference {
+//!     class_id: 3,
+//!     instance_id: ObisCode::new(1, 1, 1, 8, 0, 255),
+//!     id: 2,  // value attribute
+//! });
+//!
+//! let request = GetRequest::Normal(GetRequestNormal::new(
+//!     invoke_id,
+//!     descriptor,
+//!     None,  // No selective access
+//! ));
+//! ```
+//!
+//! # Set Request Example
+//!
+//! ```rust,ignore
+//! use dlms_application::{SetRequest, SetRequestNormal, SetDataResult, InvokeIdAndPriority};
+//! use dlms_application::{CosemAttributeDescriptor, LogicalNameReference};
+//! use dlms_core::{ObisCode, DataObject};
+//!
+//! // Create a SET request to write a new value
+//! let invoke_id = InvokeIdAndPriority::new(2, false)?;
+//! let descriptor = CosemAttributeDescriptor::LogicalName(LogicalNameReference {
+//!     class_id: 3,
+//!     instance_id: ObisCode::new(1, 1, 1, 8, 0, 255),
+//!     id: 2,
+//! });
+//!
+//! let value = DataObject::new_unsigned32(12345);
+//! let request = SetRequest::Normal(SetRequestNormal::new(
+//!     invoke_id,
+//!     descriptor,
+//!     None,  // No selective access
+//!     value,
+//! ));
+//! ```
+//!
+//! # Addressing Modes
+//!
+//! DLMS supports two addressing modes:
+//!
+//! - **Logical Name (LN)**: Uses OBIS code (A-E groups + F) for object identification
+//! - **Short Name (SN)**: Uses 16-bit base name for compact addressing
+//!
+//! ```rust,ignore
+//! use dlms_application::{CosemAttributeDescriptor, LogicalNameReference, ShortNameReference};
+//! use dlms_core::ObisCode;
+//!
+//! // LN addressing
+//! let ln_descriptor = CosemAttributeDescriptor::LogicalName(LogicalNameReference {
+//!     class_id: 3,
+//!     instance_id: ObisCode::new(1, 1, 1, 8, 0, 255),
+//!     id: 2,
+//! });
+//!
+//! // SN addressing
+//! let sn_descriptor = CosemAttributeDescriptor::ShortName {
+//!     base_name: 0x1000,
+//!     id: 2,
+//! };
+//! ```
+//!
+//! # Selective Access
+//!
+//! Selective access allows reading/writing portions of array or structured data:
+//!
+//! ```rust,ignore
+//! use dlms_application::{SelectiveAccessDescriptor, SelectiveAccess, AccessSelector};
+//! use dlms_core::DataObject;
+//!
+//! // Read specific array indices
+//! let selector = AccessSelector::Index(3);
+//! let selective = SelectiveAccess::new(0, selector);
+//!
+//! let descriptor = SelectiveAccessDescriptor {
+//!     access_selector: Some(selective),
+//! };
+//! ```
+//!
+//! # Conformance
+//!
+//! The Conformance bits indicate which DLMS features a device supports:
+//!
+//! ```rust,ignore
+//! use dlms_application::{Conformance, ConformanceBit};
+//!
+//! let conformance = Conformance::new()
+//!     .with(ConformanceBit::Get)
+//!     .with(ConformanceBit::Set)
+//!     .with(ConformanceBit::Action)
+//!     .with(ConformanceBit::BlockTransfer);
+//! ```
+//!
+//! # Module Structure
+//!
+//! - [`pdu`] - Protocol Data Unit definitions
+//! - [`service`] - Service implementations (GET, SET, ACTION, Event)
+//! - [`addressing`] - Addressing modes and selectors
+//! - [`protocol_identification`] - Protocol identification for wrappers
+//! - [`association`] - Association-related PDUs
+//! - [`encrypted`] - Encrypted PDU handling
+//! - [`sn_pdu`] - Short Name PDU format
+//!
+//! # Implementation Status
+//!
+//! ## PDU Encoding/Decoding
+//! - [x] Initiate Request/Response - Connection establishment
+//! - [x] Get Request (Normal, Next, WithList)
+//! - [x] Get Response (Normal, WithDataBlock, WithList)
+//! - [x] Set Request (Normal, WithFirstDataBlock, WithDataBlock, WithList)
+//! - [x] Set Response (Normal, WithDataBlock, WithList)
+//! - [x] Action Request/Response (Normal)
+//! - [x] Access Request/Response - Combined operations
+//! - [x] Event Notification - Push notifications
+//! - [x] Exception Response - Error handling
+//!
+//! ## Services
+//! - [x] GET service - Attribute reading
+//! - [x] SET service - Attribute writing
+//! - [x] ACTION service - Method invocation
+//! - [x] Event Notification service - Event reporting
+//!
+//! ## Addressing
+//! - [x] Logical Name (LN) addressing
+//! - [x] Short Name (SN) addressing
+//! - [x] Selective access (EntryIndex, DateRange, ValueRange, ParameterizedAccess)
+//! - [x] Access selector descriptors
 
 pub mod pdu;
 pub mod service {
@@ -57,7 +177,8 @@ pub mod encrypted;
 pub mod sn_pdu;
 
 pub use pdu::{
-    InitiateRequest, InitiateResponse, Conformance, ConformanceEncodingMode, DLMS_VERSION_6, MAX_PDU_SIZE,
+    InitiateRequest, InitiateResponse, Conformance, ConformanceEncodingMode,
+    DLMS_VERSION_6, MAX_PDU_SIZE,
     GetRequest, GetResponse, GetRequestNormal, GetResponseNormal,
     SetRequest, SetResponse, SetRequestNormal, SetResponseNormal, SetDataResult,
     ActionRequest, ActionResponse, ActionRequestNormal, ActionResponseNormal, ActionResult,
@@ -71,7 +192,7 @@ pub use pdu::{
 // Re-export addressing types
 pub use addressing::{LogicalNameReference, ShortNameReference, AccessSelector};
 
-// Re-export error code constants for convenience
+// Re-export error code constants
 pub use pdu::data_access_result;
 pub use pdu::action_result;
 

@@ -7,7 +7,7 @@ use std::fmt;
 use std::ops::{Deref, DerefMut};
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio_serial::{SerialPortBuilderExt, SerialStream};
+use tokio_serial::SerialStream;
 
 /// Wrapper for SerialStream that implements Debug
 struct DebugSerialStream(SerialStream);
@@ -106,7 +106,7 @@ impl TransportLayer for SerialTransport {
             )));
         }
 
-        let mut builder = tokio_serial::new(&self.settings.port_name, self.settings.baud_rate)
+        let builder = tokio_serial::new(&self.settings.port_name, self.settings.baud_rate)
             .data_bits(self.settings.data_bits)
             .stop_bits(self.settings.stop_bits)
             .parity(self.settings.parity)

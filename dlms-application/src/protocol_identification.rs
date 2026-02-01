@@ -337,7 +337,6 @@ impl ProtocolIdentification {
 mod tests {
     use super::*;
     use crate::pdu::{InitiateResponse, Conformance};
-    use dlms_core::datatypes::BitString;
 
     fn create_test_initiate_response() -> InitiateResponse {
         // Create a conformance with GET, SET, and ACTION bits set

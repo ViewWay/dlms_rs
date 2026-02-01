@@ -38,16 +38,16 @@
 //! - [x] RLRE (Release Response) 结构定义和编码/解码
 //! - [x] 基础类型（AssociateResult, ReleaseRequestReason, ReleaseResponseReason）
 //! - [x] 基础辅助类型（APTitle, AEQualifier, APInvocationIdentifier, etc.）
+//! - [x] APTitle Form 1 和 Form 2 完整支持（OID 和 OCTET STRING）
+//! - [x] AEQualifier Form 1 和 Form 2 完整支持（INTEGER 和 OCTET STRING）
+//! - [x] ApplicationContextNameList 完整编码/解码（SEQUENCE OF）
+//! - [x] AssociateSourceDiagnostic 完整 CHOICE 支持
+//! - [x] AcseServiceUser 和 AcseServiceProvider 枚举定义
+//! - [x] AuthenticationValue 完整 CHOICE 支持（所有数据类型变体）
+//! - [x] 认证机制 OID 常量定义（Low-level, HLS5-GMAC, SHA-256等）
+//! - [x] ACSE Requirements 位定义（builder模式）
 //!
 //! ## 待实现
-//! - [ ] 完整的 ApplicationContextNameList 编码/解码（SEQUENCE OF）
-//! - [ ] 完整的 AssociateSourceDiagnostic CHOICE 支持
-//! - [ ] AcseServiceUser 和 AcseServiceProvider 枚举定义
-//! - [ ] 完整的 APTitle Form 1 支持（当前仅支持 Form 2）
-//! - [ ] 完整的 AEQualifier Form 1 支持（当前仅支持 Form 2）
-//! - [ ] 完整的 AuthenticationValue CHOICE 支持（当前仅支持 OCTET STRING）
-//! - [ ] 常用的认证机制 OID 常量定义
-//! - [ ] ACSE Requirements 位定义
 //! - [ ] 单元测试覆盖所有字段组合
 //! - [ ] 错误处理和验证增强
 

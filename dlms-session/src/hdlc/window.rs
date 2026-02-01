@@ -11,8 +11,8 @@ use std::time::{Duration, Instant};
 /// Used for implementing sliding window protocol and retransmission.
 #[derive(Debug, Clone)]
 struct PendingFrame {
-    /// The frame that was sent
-    frame: HdlcFrame,
+    /// The frame that was sent (reserved for future use)
+    _frame: HdlcFrame,
     /// Sequence number of this frame (N(S))
     sequence: u8,
     /// Time when frame was sent
@@ -27,7 +27,7 @@ impl PendingFrame {
     /// Create a new pending frame
     fn new(frame: HdlcFrame, sequence: u8, encoded_bytes: Vec<u8>) -> Self {
         Self {
-            frame,
+            _frame: frame,
             sequence,
             sent_time: Instant::now(),
             retry_count: 0,
@@ -271,7 +271,7 @@ impl SendWindow {
     /// Vector of (sequence, encoded_bytes) tuples for frames that need retransmission
     pub fn get_retransmissions(&mut self) -> Vec<(u8, Vec<u8>)> {
         let mut retransmissions = Vec::new();
-        let now = Instant::now();
+        let _now = Instant::now();
 
         for pending in &mut self.unacked_frames {
             if pending.is_timeout(self.retransmit_timeout) {

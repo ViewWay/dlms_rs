@@ -13,8 +13,7 @@
 //! ```
 
 use crate::error::{DlmsError, DlmsResult};
-use crate::ber::types::{BerTag, BerTagClass, BerLength};
-use std::io::Write;
+use crate::ber::types::{BerTag, BerLength};
 
 /// BER encoder for ASN.1 structures
 ///
@@ -123,7 +122,6 @@ impl BerEncoder {
 
         // Calculate minimum number of bytes needed
         let mut bytes = Vec::new();
-        let mut remaining = value;
 
         // Handle negative numbers
         if value < 0 {
@@ -153,6 +151,54 @@ impl BerEncoder {
 
         bytes.reverse(); // Big-endian
         bytes
+    }
+
+    /// Encode a BOOLEAN
+    ///
+    /// # Arguments
+    /// * `value` - Boolean value
+    ///
+    /// # Encoding Format
+    /// BOOLEAN is encoded as:
+    /// - Tag: Universal, Primitive, tag 1
+    /// - Length: 1
+    /// - Value: 0x00 for false, 0xFF for true
+    pub fn encode_boolean(&mut self, value: bool) -> DlmsResult<()> {
+        let tag = BerTag::universal(false, 1); // BOOLEAN tag
+        let byte = if value { 0xFFu8 } else { 0x00u8 };
+        self.encode_tlv(&tag, &[byte])
+    }
+
+    /// Encode an unsigned INTEGER (u64)
+    ///
+    /// # Arguments
+    /// * `value` - Unsigned integer value
+    ///
+    /// # Encoding Format
+    /// Same as INTEGER encoding, but for unsigned values.
+    /// Uses minimal big-endian encoding.
+    pub fn encode_unsigned_integer(&mut self, value: u64) -> DlmsResult<()> {
+        let tag = BerTag::universal(false, 2); // INTEGER tag
+
+        // Encode value in big-endian, minimal encoding
+        let bytes = if value == 0 {
+            vec![0]
+        } else {
+            let mut bytes = Vec::new();
+            let mut temp = value;
+            while temp > 0 {
+                bytes.push((temp & 0xFF) as u8);
+                temp >>= 8;
+            }
+            // If MSB has bit 7 set, add a 0x00 byte to indicate positive value
+            if !bytes.is_empty() && (bytes[bytes.len() - 1] & 0x80) != 0 {
+                bytes.push(0x00);
+            }
+            bytes.reverse(); // Big-endian
+            bytes
+        };
+
+        self.encode_tlv(&tag, &bytes)
     }
 
     /// Encode an OCTET STRING
@@ -186,7 +232,7 @@ impl BerEncoder {
     /// # Why Unused Bits?
     /// BIT STRING can have a length that is not a multiple of 8. The unused
     /// bits byte indicates how many bits in the last byte are not used.
-    pub fn encode_bit_string(&mut self, value: &[u8], num_bits: usize, unused_bits: u8) -> DlmsResult<()> {
+    pub fn encode_bit_string(&mut self, value: &[u8], _num_bits: usize, unused_bits: u8) -> DlmsResult<()> {
         if unused_bits > 7 {
             return Err(DlmsError::InvalidData(
                 "Unused bits must be 0-7".to_string(),

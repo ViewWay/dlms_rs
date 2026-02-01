@@ -382,6 +382,132 @@ impl ProfileGeneric {
 
         DataObject::Array(descriptors)
     }
+
+    /// Get a range of entries from the buffer
+    ///
+    /// # Arguments
+    /// * `from_index` - Starting index (0-based)
+    /// * `to_index` - Ending index (exclusive), or None for all remaining entries
+    ///
+    /// # Returns
+    /// A vector of profile entries within the specified range
+    pub async fn get_range(&self, from_index: usize, to_index: Option<usize>) -> Vec<GenericProfileEntry> {
+        let buffer = self.buffer.read().await;
+        let len = buffer.len();
+
+        let start = from_index.min(len);
+        let end = match to_index {
+            Some(t) => t.min(len),
+            None => len,
+        };
+
+        if start >= end {
+            return Vec::new();
+        }
+
+        buffer[start..end].to_vec()
+    }
+
+    /// Get entries within a time range
+    ///
+    /// # Arguments
+    /// * `from_time` - Start timestamp (inclusive)
+    /// * `to_time` - End timestamp (inclusive)
+    ///
+    /// # Returns
+    /// A vector of profile entries within the specified time range
+    pub async fn get_entries_by_time_range(
+        &self,
+        from_time: &CosemDateTime,
+        to_time: &CosemDateTime,
+    ) -> Vec<GenericProfileEntry> {
+        let buffer = self.buffer.read().await;
+        let mut result = Vec::new();
+
+        for entry in buffer.iter() {
+            // Compare timestamps (simplified comparison)
+            let entry_bytes = entry.timestamp.encode();
+            let from_bytes = from_time.encode();
+            let to_bytes = to_time.encode();
+
+            if entry_bytes >= from_bytes && entry_bytes <= to_bytes {
+                result.push(entry.clone());
+            }
+        }
+
+        result
+    }
+
+    /// Get the newest N entries
+    ///
+    /// # Arguments
+    /// * `count` - Number of most recent entries to retrieve
+    ///
+    /// # Returns
+    /// A vector of the most recent N entries
+    pub async fn get_newest_entries(&self, count: usize) -> Vec<GenericProfileEntry> {
+        let buffer = self.buffer.read().await;
+        let len = buffer.len();
+
+        let start = if count >= len { 0 } else { len - count };
+        buffer[start..].to_vec()
+    }
+
+    /// Get the oldest N entries
+    ///
+    /// # Arguments
+    /// * `count` - Number of oldest entries to retrieve
+    ///
+    /// # Returns
+    /// A vector of the oldest N entries
+    pub async fn get_oldest_entries(&self, count: usize) -> Vec<GenericProfileEntry> {
+        let buffer = self.buffer.read().await;
+        let end = count.min(buffer.len());
+        buffer[..end].to_vec()
+    }
+
+    /// Find entries matching a predicate
+    ///
+    /// # Arguments
+    /// * `predicate` - A function that returns true for entries to include
+    ///
+    /// # Returns
+    /// A vector of matching profile entries
+    pub async fn find_entries<F>(&self, predicate: F) -> Vec<GenericProfileEntry>
+    where
+        F: Fn(&GenericProfileEntry) -> bool,
+    {
+        let buffer = self.buffer.read().await;
+        buffer.iter().filter(|e| predicate(e)).cloned().collect()
+    }
+
+    /// Check if the buffer is full
+    pub async fn is_buffer_full(&self) -> bool {
+        self.buffer.read().await.len() >= self.max_buffer_size
+    }
+
+    /// Check if capture is active
+    pub async fn is_capture_active(&self) -> bool {
+        let status = self.buffer_status.read().await;
+        (*status & ProfileBufferStatus::CaptureActive as u8) != 0
+    }
+
+    /// Enable or disable capture
+    pub async fn set_capture_active(&self, active: bool) {
+        let mut status = self.buffer_status.write().await;
+        if active {
+            *status |= ProfileBufferStatus::CaptureActive as u8;
+        } else {
+            *status &= !(ProfileBufferStatus::CaptureActive as u8);
+        }
+    }
+
+    /// Get buffer usage percentage
+    pub async fn buffer_usage_percent(&self) -> f64 {
+        let len = self.buffer.read().await.len() as f64;
+        let capacity = self.max_buffer_size as f64;
+        (len / capacity) * 100.0
+    }
 }
 
 #[async_trait]
@@ -781,5 +907,119 @@ mod tests {
             }
             _ => panic!("Expected Unsigned32"),
         }
+    }
+
+    // Tests for enhanced functionality
+
+    #[tokio::test]
+    async fn test_profile_generic_get_range() {
+        let profile = ProfileGeneric::with_default_obis(100);
+        let timestamp = CosemDateTime::new(2024, 6, 15, 12, 0, 0, 0, &[]).unwrap();
+
+        // Add 5 entries
+        for i in 0..5 {
+            profile.capture_with_timestamp(timestamp.clone(), vec![DataObject::Unsigned32(i)]).await.unwrap();
+        }
+
+        // Get range [1, 3) (entries at index 1 and 2)
+        let range = profile.get_range(1, Some(3)).await;
+        assert_eq!(range.len(), 2);
+        match &range[0].values[0] {
+            DataObject::Unsigned32(v) => assert_eq!(*v, 1),
+            _ => panic!("Expected Unsigned32"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_profile_generic_get_newest_entries() {
+        let profile = ProfileGeneric::with_default_obis(100);
+        let timestamp = CosemDateTime::new(2024, 6, 15, 12, 0, 0, 0, &[]).unwrap();
+
+        for i in 0..10 {
+            profile.capture_with_timestamp(timestamp.clone(), vec![DataObject::Unsigned32(i)]).await.unwrap();
+        }
+
+        // Get 3 newest entries
+        let newest = profile.get_newest_entries(3).await;
+        assert_eq!(newest.len(), 3);
+        // Should be entries 7, 8, 9
+        match &newest[0].values[0] {
+            DataObject::Unsigned32(v) => assert_eq!(*v, 7),
+            _ => panic!("Expected Unsigned32"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_profile_generic_get_oldest_entries() {
+        let profile = ProfileGeneric::with_default_obis(100);
+        let timestamp = CosemDateTime::new(2024, 6, 15, 12, 0, 0, 0, &[]).unwrap();
+
+        for i in 0..10 {
+            profile.capture_with_timestamp(timestamp.clone(), vec![DataObject::Unsigned32(i)]).await.unwrap();
+        }
+
+        // Get 3 oldest entries
+        let oldest = profile.get_oldest_entries(3).await;
+        assert_eq!(oldest.len(), 3);
+        match &oldest[0].values[0] {
+            DataObject::Unsigned32(v) => assert_eq!(*v, 0),
+            _ => panic!("Expected Unsigned32"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_profile_generic_find_entries() {
+        let profile = ProfileGeneric::with_default_obis(100);
+        let timestamp = CosemDateTime::new(2024, 6, 15, 12, 0, 0, 0, &[]).unwrap();
+
+        for i in 0..10 {
+            profile.capture_with_timestamp(timestamp.clone(), vec![DataObject::Unsigned32(i)]).await.unwrap();
+        }
+
+        // Find entries where value > 5
+        let found = profile.find_entries(|entry| {
+            matches!(&entry.values[0], DataObject::Unsigned32(v) if *v > 5)
+        }).await;
+
+        assert_eq!(found.len(), 4); // 6, 7, 8, 9
+    }
+
+    #[tokio::test]
+    async fn test_profile_generic_is_buffer_full() {
+        let profile = ProfileGeneric::with_default_obis(5);
+        let timestamp = CosemDateTime::new(2024, 6, 15, 12, 0, 0, 0, &[]).unwrap();
+
+        // Fill the buffer
+        for _ in 0..5 {
+            profile.capture_with_timestamp(timestamp.clone(), vec![DataObject::Unsigned32(0)]).await.unwrap();
+        }
+
+        assert!(profile.is_buffer_full().await);
+    }
+
+    #[tokio::test]
+    async fn test_profile_generic_capture_active() {
+        let profile = ProfileGeneric::with_default_obis(100);
+
+        assert!(!profile.is_capture_active().await);
+
+        profile.set_capture_active(true).await;
+        assert!(profile.is_capture_active().await);
+
+        profile.set_capture_active(false).await;
+        assert!(!profile.is_capture_active().await);
+    }
+
+    #[tokio::test]
+    async fn test_profile_generic_buffer_usage_percent() {
+        let profile = ProfileGeneric::with_default_obis(100);
+        let timestamp = CosemDateTime::new(2024, 6, 15, 12, 0, 0, 0, &[]).unwrap();
+
+        for _ in 0..50 {
+            profile.capture_with_timestamp(timestamp.clone(), vec![DataObject::Unsigned32(0)]).await.unwrap();
+        }
+
+        let usage = profile.buffer_usage_percent().await;
+        assert!((usage - 50.0).abs() < 0.01);
     }
 }
