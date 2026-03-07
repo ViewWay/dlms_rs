@@ -753,7 +753,9 @@ mod tests {
         let scaler_unit = ScalerUnit::new(0, 0x1E);
         let register = Register::new(obis, value, scaler_unit, None);
 
-        let callback = Arc::new(|_new_value| {});
+        // Use a function instead of empty closure so Fn implements for any lifetime (&DataObject)
+        fn noop(_: &DataObject) {}
+        let callback = Arc::new(noop) as RegisterChangeCallback;
         register.register_change_callback("test".to_string(), callback.clone()).await.unwrap();
 
         // Try to register with same ID

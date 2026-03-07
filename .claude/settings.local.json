@@ -14,7 +14,10 @@
       "mcp__zread__search_doc",
       "mcp__zread__get_repo_structure",
       "mcp__zread__read_file",
-      "Bash(pkill:*)"
+      "Bash(pkill:*)",
+      "Skill(superpowers:systematic-debugging)",
+      "Bash(git checkout:*)",
+      "Bash(grep:*)"
     ]
   }
 }
