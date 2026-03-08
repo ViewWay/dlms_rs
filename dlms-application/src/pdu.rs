@@ -669,8 +669,26 @@ impl InitiateRequest {
         let mut encoder = AxdrEncoder::new();
 
         // Encode in reverse order (A-XDR convention)
-        // 1. client_max_receive_pdu_size (Unsigned16)
-        encoder.encode_u16(self.client_max_receive_pdu_size)?;
+        // Fields are encoded in REVERSE order of their logical declaration
+        // The decoder reads from the beginning, so we must encode LAST field FIRST
+
+        // 6. dedicated_key (optional OctetString) - LAST field, encode FIRST
+        encoder.encode_bool(self.dedicated_key.is_some())?;
+        if let Some(ref key) = self.dedicated_key {
+            encoder.encode_octet_string(key)?;
+        }
+
+        // 5. response_allowed (Boolean)
+        encoder.encode_bool(self.response_allowed)?;
+
+        // 4. proposed_quality_of_service (optional Integer8)
+        encoder.encode_bool(self.proposed_quality_of_service.is_some())?;
+        if let Some(qos) = self.proposed_quality_of_service {
+            encoder.encode_i8(qos)?;
+        }
+
+        // 3. proposed_dlms_version_number (Unsigned8)
+        encoder.encode_u8(self.proposed_dlms_version_number)?;
 
         // 2. proposed_conformance (BitString, 24 bits)
         // According to ASN.1 specification, Conformance shall be encoded in BER
@@ -678,27 +696,8 @@ impl InitiateRequest {
         let conformance_ber = self.proposed_conformance.encode_ber()?;
         encoder.encode_octet_string(&conformance_ber)?;
 
-        // 3. proposed_dlms_version_number (Unsigned8)
-        encoder.encode_u8(self.proposed_dlms_version_number)?;
-
-        // 4. proposed_quality_of_service (optional Integer8)
-        // Optional field: encode usage flag first, then value (if present)
-        // Note: In A-XDR, optional fields are encoded as: flag, then value
-        encoder.encode_bool(self.proposed_quality_of_service.is_some())?;
-        if let Some(qos) = self.proposed_quality_of_service {
-            encoder.encode_i8(qos)?;
-        }
-
-        // 5. response_allowed (Boolean, default true)
-        encoder.encode_bool(self.response_allowed)?;
-
-        // 6. dedicated_key (optional OctetString)
-        // Optional field: encode usage flag first, then value (if present)
-        // Note: In A-XDR, optional fields are encoded as: flag, then value
-        encoder.encode_bool(self.dedicated_key.is_some())?;
-        if let Some(ref key) = self.dedicated_key {
-            encoder.encode_octet_string(key)?;
-        }
+        // 1. client_max_receive_pdu_size (Unsigned16) - FIRST field, encode LAST
+        encoder.encode_u16(self.client_max_receive_pdu_size)?;
 
         Ok(encoder.into_bytes())
     }
@@ -782,16 +781,16 @@ impl InitiateRequest {
         let mut encoder = AxdrEncoder::new();
 
         // Encode in reverse order (A-XDR convention)
-        // 1. client_max_receive_pdu_size (Unsigned16)
-        encoder.encode_u16(self.client_max_receive_pdu_size)?;
+        // LAST field FIRST
 
-        // 2. proposed_conformance (BitString, 24 bits)
-        // Encode using the specified mode
-        let conformance_bytes = self.proposed_conformance.encode_with_mode(mode)?;
-        encoder.encode_octet_string(&conformance_bytes)?;
+        // 6. dedicated_key (optional OctetString)
+        encoder.encode_bool(self.dedicated_key.is_some())?;
+        if let Some(ref key) = self.dedicated_key {
+            encoder.encode_octet_string(key)?;
+        }
 
-        // 3. proposed_dlms_version_number (Unsigned8)
-        encoder.encode_u8(self.proposed_dlms_version_number)?;
+        // 5. response_allowed (Boolean)
+        encoder.encode_bool(self.response_allowed)?;
 
         // 4. proposed_quality_of_service (optional Integer8)
         encoder.encode_bool(self.proposed_quality_of_service.is_some())?;
@@ -799,14 +798,16 @@ impl InitiateRequest {
             encoder.encode_i8(qos)?;
         }
 
-        // 5. response_allowed (Boolean, default true)
-        encoder.encode_bool(self.response_allowed)?;
+        // 3. proposed_dlms_version_number (Unsigned8)
+        encoder.encode_u8(self.proposed_dlms_version_number)?;
 
-        // 6. dedicated_key (optional OctetString)
-        encoder.encode_bool(self.dedicated_key.is_some())?;
-        if let Some(ref key) = self.dedicated_key {
-            encoder.encode_octet_string(key)?;
-        }
+        // 2. proposed_conformance (BitString, 24 bits)
+        // Encode using the specified mode
+        let conformance_bytes = self.proposed_conformance.encode_with_mode(mode)?;
+        encoder.encode_octet_string(&conformance_bytes)?;
+
+        // 1. client_max_receive_pdu_size (Unsigned16)
+        encoder.encode_u16(self.client_max_receive_pdu_size)?;
 
         Ok(encoder.into_bytes())
     }
@@ -970,11 +971,16 @@ impl InitiateResponse {
         let mut encoder = AxdrEncoder::new();
 
         // Encode in reverse order (A-XDR convention)
-        // 1. vaa_name (Integer16)
-        encoder.encode_i16(self.vaa_name)?;
+        // LAST field FIRST
 
-        // 2. server_max_receive_pdu_size (Unsigned16)
-        encoder.encode_u16(self.server_max_receive_pdu_size)?;
+        // 5. negotiated_quality_of_service (optional Integer8) - LAST field, encode FIRST
+        encoder.encode_bool(self.negotiated_quality_of_service.is_some())?;
+        if let Some(qos) = self.negotiated_quality_of_service {
+            encoder.encode_i8(qos)?;
+        }
+
+        // 4. negotiated_dlms_version_number (Unsigned8)
+        encoder.encode_u8(self.negotiated_dlms_version_number)?;
 
         // 3. negotiated_conformance (BitString, 24 bits)
         // According to ASN.1 specification, Conformance shall be encoded in BER
@@ -982,16 +988,11 @@ impl InitiateResponse {
         let conformance_ber = self.negotiated_conformance.encode_ber()?;
         encoder.encode_octet_string(&conformance_ber)?;
 
-        // 4. negotiated_dlms_version_number (Unsigned8)
-        encoder.encode_u8(self.negotiated_dlms_version_number)?;
+        // 2. server_max_receive_pdu_size (Unsigned16)
+        encoder.encode_u16(self.server_max_receive_pdu_size)?;
 
-        // 5. negotiated_quality_of_service (optional Integer8)
-        // Optional field: encode usage flag first, then value (if present)
-        // Note: In A-XDR, optional fields are encoded as: flag, then value
-        encoder.encode_bool(self.negotiated_quality_of_service.is_some())?;
-        if let Some(qos) = self.negotiated_quality_of_service {
-            encoder.encode_i8(qos)?;
-        }
+        // 1. vaa_name (Integer16) - FIRST field, encode LAST
+        encoder.encode_i16(self.vaa_name)?;
 
         Ok(encoder.into_bytes())
     }
@@ -1058,25 +1059,27 @@ impl InitiateResponse {
         let mut encoder = AxdrEncoder::new();
 
         // Encode in reverse order (A-XDR convention)
-        // 1. vaa_name (Integer16)
-        encoder.encode_i16(self.vaa_name)?;
+        // LAST field FIRST
 
-        // 2. server_max_receive_pdu_size (Unsigned16)
-        encoder.encode_u16(self.server_max_receive_pdu_size)?;
+        // 5. negotiated_quality_of_service (optional Integer8) - LAST field, encode FIRST
+        encoder.encode_bool(self.negotiated_quality_of_service.is_some())?;
+        if let Some(qos) = self.negotiated_quality_of_service {
+            encoder.encode_i8(qos)?;
+        }
+
+        // 4. negotiated_dlms_version_number (Unsigned8)
+        encoder.encode_u8(self.negotiated_dlms_version_number)?;
 
         // 3. negotiated_conformance (BitString, 24 bits)
         // Encode using the specified mode
         let conformance_bytes = self.negotiated_conformance.encode_with_mode(mode)?;
         encoder.encode_octet_string(&conformance_bytes)?;
 
-        // 4. negotiated_dlms_version_number (Unsigned8)
-        encoder.encode_u8(self.negotiated_dlms_version_number)?;
+        // 2. server_max_receive_pdu_size (Unsigned16)
+        encoder.encode_u16(self.server_max_receive_pdu_size)?;
 
-        // 5. negotiated_quality_of_service (optional Integer8)
-        encoder.encode_bool(self.negotiated_quality_of_service.is_some())?;
-        if let Some(qos) = self.negotiated_quality_of_service {
-            encoder.encode_i8(qos)?;
-        }
+        // 1. vaa_name (Integer16) - FIRST field, encode LAST
+        encoder.encode_i16(self.vaa_name)?;
 
         Ok(encoder.into_bytes())
     }
@@ -2752,8 +2755,11 @@ mod tests {
 
         let encoded = conformance.encode_ber().unwrap();
 
-        // BER encoding should start with APPLICATION 31 tag (0x7F)
-        assert_eq!(encoded[0], 0x7F);
+        // BER encoding for APPLICATION 31 uses extended form:
+        // First byte: 0x5F (APPLICATION class + primitive + all tag bits set)
+        // Second byte: 0x1F (tag number 31)
+        assert_eq!(encoded[0], 0x5F);
+        assert_eq!(encoded[1], 0x1F);
 
         // Verify we can decode it back
         let decoded = Conformance::decode_ber(&encoded).unwrap();
@@ -2773,7 +2779,7 @@ mod tests {
     fn test_initiate_request_encode_decode() {
         let conformance = Conformance::new();
         let request = InitiateRequest::with_params(conformance, 1024).unwrap();
-        
+
         let encoded = request.encode().unwrap();
         let decoded = InitiateRequest::decode(&encoded).unwrap();
         
@@ -5122,20 +5128,20 @@ impl EventNotification {
     pub fn encode(&self) -> DlmsResult<Vec<u8>> {
         let mut encoder = AxdrEncoder::new();
 
-        // Encode in reverse order
-        // 1. attribute_value (DataObject)
-        encoder.encode_data_object(&self.attribute_value)?;
-
-        // 2. cosem_attribute_descriptor (CosemAttributeDescriptor)
-        let attr_bytes = self.cosem_attribute_descriptor.encode()?;
-        encoder.encode_bytes(&attr_bytes)?;
-
-        // 3. time (optional CosemDateTime)
+        // Encode in reverse order (LAST field FIRST)
+        // 3. time (optional CosemDateTime) - LAST field, encode FIRST
         encoder.encode_bool(self.time.is_some())?;
         if let Some(ref dt) = self.time {
             let time_bytes = dt.encode();
-            encoder.encode_bytes(&time_bytes)?;
+            encoder.encode_octet_string(&time_bytes)?;
         }
+
+        // 2. cosem_attribute_descriptor (CosemAttributeDescriptor)
+        let attr_bytes = self.cosem_attribute_descriptor.encode()?;
+        encoder.encode_octet_string(&attr_bytes)?;
+
+        // 1. attribute_value (DataObject) - FIRST field, encode LAST
+        encoder.encode_data_object(&self.attribute_value)?;
 
         Ok(encoder.into_bytes())
     }

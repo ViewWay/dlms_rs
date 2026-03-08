@@ -139,93 +139,8 @@ impl AARQApdu {
         let mut encoder = BerEncoder::new();
         let mut field_encoder = BerEncoder::new();
 
-        // Encode fields in reverse order (as per BER convention)
-        // Tag 30: userInformation (optional, constructed)
-        if let Some(ref user_info) = self.user_information {
-            let user_info_bytes = user_info.encode()?;
-            field_encoder.encode_context_specific(30, &user_info_bytes, true)?;
-        }
-
-        // Tag 29: implementationInformation (optional, primitive)
-        if let Some(ref impl_info) = self.implementation_information {
-            let impl_info_bytes = impl_info.encode()?;
-            field_encoder.encode_context_specific(29, &impl_info_bytes, false)?;
-        }
-
-        // Tag 13: applicationContextNameList (optional, constructed)
-        // TODO: Implement when ApplicationContextNameList encoding is complete
-        // if let Some(ref name_list) = self.application_context_name_list {
-        //     let name_list_bytes = name_list.encode()?;
-        //     field_encoder.encode_context_specific(13, &name_list_bytes, true)?;
-        // }
-
-        // Tag 12: callingAuthenticationValue (optional, constructed)
-        if let Some(ref auth_value) = self.calling_authentication_value {
-            let auth_bytes = auth_value.encode()?;
-            field_encoder.encode_context_specific(12, &auth_bytes, true)?;
-        }
-
-        // Tag 11: mechanismName (optional, primitive)
-        if let Some(ref mechanism) = self.mechanism_name {
-            let mechanism_bytes = mechanism.encode()?;
-            field_encoder.encode_context_specific(11, &mechanism_bytes, false)?;
-        }
-
-        // Tag 10: senderAcseRequirements (optional, primitive)
-        if let Some(ref requirements) = self.sender_acse_requirements {
-            let req_bytes = requirements.encode()?;
-            field_encoder.encode_context_specific(10, &req_bytes, false)?;
-        }
-
-        // Tag 9: callingAEInvocationIdentifier (optional, constructed)
-        if let Some(ref id) = self.calling_ae_invocation_identifier {
-            let id_bytes = id.encode()?;
-            field_encoder.encode_context_specific(9, &id_bytes, true)?;
-        }
-
-        // Tag 8: callingAPInvocationIdentifier (optional, constructed)
-        if let Some(ref id) = self.calling_ap_invocation_identifier {
-            let id_bytes = id.encode()?;
-            field_encoder.encode_context_specific(8, &id_bytes, true)?;
-        }
-
-        // Tag 7: callingAEQualifier (optional, constructed)
-        if let Some(ref qualifier) = self.calling_ae_qualifier {
-            let qual_bytes = qualifier.encode()?;
-            field_encoder.encode_context_specific(7, &qual_bytes, true)?;
-        }
-
-        // Tag 6: callingAPTitle (optional, constructed)
-        if let Some(ref title) = self.calling_ap_title {
-            let title_bytes = title.encode()?;
-            field_encoder.encode_context_specific(6, &title_bytes, true)?;
-        }
-
-        // Tag 5: calledAEInvocationIdentifier (optional, constructed)
-        if let Some(ref id) = self.called_ae_invocation_identifier {
-            let id_bytes = id.encode()?;
-            field_encoder.encode_context_specific(5, &id_bytes, true)?;
-        }
-
-        // Tag 4: calledAPInvocationIdentifier (optional, constructed)
-        if let Some(ref id) = self.called_ap_invocation_identifier {
-            let id_bytes = id.encode()?;
-            field_encoder.encode_context_specific(4, &id_bytes, true)?;
-        }
-
-        // Tag 3: calledAEQualifier (optional, constructed)
-        if let Some(ref qualifier) = self.called_ae_qualifier {
-            let qual_bytes = qualifier.encode()?;
-            field_encoder.encode_context_specific(3, &qual_bytes, true)?;
-        }
-
-        // Tag 2: calledAPTitle (optional, constructed)
-        if let Some(ref title) = self.called_ap_title {
-            let title_bytes = title.encode()?;
-            field_encoder.encode_context_specific(2, &title_bytes, true)?;
-        }
-
-        // Tag 1: applicationContextName (required, constructed)
+        // ENCODE IN FORWARD ORDER (as they appear in the SEQUENCE)
+        // Tag 1: applicationContextName (required, constructed) - MUST BE FIRST
         let mut app_ctx_encoder = BerEncoder::new();
         app_ctx_encoder.encode_object_identifier(&self.application_context_name)?;
         let app_ctx_bytes = app_ctx_encoder.into_bytes();
@@ -239,6 +154,91 @@ impl AARQApdu {
             bit_str_encoder.encode_bit_string(protocol_ver, num_bits, 0)?;
             let bit_str_bytes = bit_str_encoder.into_bytes();
             field_encoder.encode_context_specific(0, &bit_str_bytes, false)?;
+        }
+
+        // Tag 2: calledAPTitle (optional, constructed)
+        if let Some(ref title) = self.called_ap_title {
+            let title_bytes = title.encode()?;
+            field_encoder.encode_context_specific(2, &title_bytes, true)?;
+        }
+
+        // Tag 3: calledAEQualifier (optional, constructed)
+        if let Some(ref qualifier) = self.called_ae_qualifier {
+            let qual_bytes = qualifier.encode()?;
+            field_encoder.encode_context_specific(3, &qual_bytes, true)?;
+        }
+
+        // Tag 4: calledAPInvocationIdentifier (optional, constructed)
+        if let Some(ref id) = self.called_ap_invocation_identifier {
+            let id_bytes = id.encode()?;
+            field_encoder.encode_context_specific(4, &id_bytes, true)?;
+        }
+
+        // Tag 5: calledAEInvocationIdentifier (optional, constructed)
+        if let Some(ref id) = self.called_ae_invocation_identifier {
+            let id_bytes = id.encode()?;
+            field_encoder.encode_context_specific(5, &id_bytes, true)?;
+        }
+
+        // Tag 6: callingAPTitle (optional, constructed)
+        if let Some(ref title) = self.calling_ap_title {
+            let title_bytes = title.encode()?;
+            field_encoder.encode_context_specific(6, &title_bytes, true)?;
+        }
+
+        // Tag 7: callingAEQualifier (optional, constructed)
+        if let Some(ref qualifier) = self.calling_ae_qualifier {
+            let qual_bytes = qualifier.encode()?;
+            field_encoder.encode_context_specific(7, &qual_bytes, true)?;
+        }
+
+        // Tag 8: callingAPInvocationIdentifier (optional, constructed)
+        if let Some(ref id) = self.calling_ap_invocation_identifier {
+            let id_bytes = id.encode()?;
+            field_encoder.encode_context_specific(8, &id_bytes, true)?;
+        }
+
+        // Tag 9: callingAEInvocationIdentifier (optional, constructed)
+        if let Some(ref id) = self.calling_ae_invocation_identifier {
+            let id_bytes = id.encode()?;
+            field_encoder.encode_context_specific(9, &id_bytes, true)?;
+        }
+
+        // Tag 10: senderAcseRequirements (optional, primitive)
+        if let Some(ref requirements) = self.sender_acse_requirements {
+            let req_bytes = requirements.encode()?;
+            field_encoder.encode_context_specific(10, &req_bytes, false)?;
+        }
+
+        // Tag 11: mechanismName (optional, primitive)
+        if let Some(ref mechanism) = self.mechanism_name {
+            let mechanism_bytes = mechanism.encode()?;
+            field_encoder.encode_context_specific(11, &mechanism_bytes, false)?;
+        }
+
+        // Tag 12: callingAuthenticationValue (optional, constructed)
+        if let Some(ref auth_value) = self.calling_authentication_value {
+            let auth_bytes = auth_value.encode()?;
+            field_encoder.encode_context_specific(12, &auth_bytes, true)?;
+        }
+
+        // Tag 13: applicationContextNameList (optional, constructed)
+        // TODO: Implement when ApplicationContextNameList encoding is complete
+        // if let Some(ref name_list) = self.application_context_name_list {
+        //     let name_list_bytes = name_list.encode()?;
+        //     field_encoder.encode_context_specific(13, &name_list_bytes, true)?;
+        // }
+
+        // Tag 29: implementationInformation (optional, primitive)
+        if let Some(ref impl_info) = self.implementation_information {
+            let impl_info_bytes = impl_info.encode()?;
+            field_encoder.encode_context_specific(29, &impl_info_bytes, false)?;
+        }
+
+        // Tag 30: userInformation (optional, constructed) - LAST
+        if let Some(ref user_info) = self.user_information {
+            let user_info_bytes = user_info.encode()?;
+            field_encoder.encode_context_specific(30, &user_info_bytes, true)?;
         }
 
         // Encode as SEQUENCE (constructed)
@@ -283,7 +283,10 @@ impl AARQApdu {
         }
 
         // Decode SEQUENCE
-        let mut seq_decoder = BerDecoder::new(value);
+        // The value contains the SEQUENCE, need to decode it first
+        let mut seq_content_decoder = BerDecoder::new(value);
+        let (_seq_tag, seq_value, _seq_bytes) = seq_content_decoder.decode_tlv()?;
+        let mut seq_decoder = BerDecoder::new(seq_value);
         let mut aarq = AARQApdu {
             protocol_version: None,
             application_context_name: Vec::new(), // Will be set below
@@ -523,73 +526,8 @@ impl AAREApdu {
         let mut encoder = BerEncoder::new();
         let mut field_encoder = BerEncoder::new();
 
-        // Encode fields in reverse order
-        // Tag 30: userInformation
-        if let Some(ref user_info) = self.user_information {
-            let user_info_bytes = user_info.encode()?;
-            field_encoder.encode_context_specific(30, &user_info_bytes, true)?;
-        }
-
-        // Tag 29: implementationInformation
-        if let Some(ref impl_info) = self.implementation_information {
-            let impl_info_bytes = impl_info.encode()?;
-            field_encoder.encode_context_specific(29, &impl_info_bytes, false)?;
-        }
-
-        // Tag 11: applicationContextNameList
-        // TODO: Implement when ApplicationContextNameList encoding is complete
-
-        // Tag 10: respondingAuthenticationValue
-        if let Some(ref auth_value) = self.responding_authentication_value {
-            let auth_bytes = auth_value.encode()?;
-            field_encoder.encode_context_specific(10, &auth_bytes, true)?;
-        }
-
-        // Tag 9: mechanismName
-        if let Some(ref mechanism) = self.mechanism_name {
-            let mechanism_bytes = mechanism.encode()?;
-            field_encoder.encode_context_specific(9, &mechanism_bytes, false)?;
-        }
-
-        // Tag 8: responderAcseRequirements
-        if let Some(ref requirements) = self.responder_acse_requirements {
-            let req_bytes = requirements.encode()?;
-            field_encoder.encode_context_specific(8, &req_bytes, false)?;
-        }
-
-        // Tag 7: respondingAEInvocationIdentifier
-        if let Some(ref id) = self.responding_ae_invocation_identifier {
-            let id_bytes = id.encode()?;
-            field_encoder.encode_context_specific(7, &id_bytes, true)?;
-        }
-
-        // Tag 6: respondingAPInvocationIdentifier
-        if let Some(ref id) = self.responding_ap_invocation_identifier {
-            let id_bytes = id.encode()?;
-            field_encoder.encode_context_specific(6, &id_bytes, true)?;
-        }
-
-        // Tag 5: respondingAEQualifier
-        if let Some(ref qualifier) = self.responding_ae_qualifier {
-            let qual_bytes = qualifier.encode()?;
-            field_encoder.encode_context_specific(5, &qual_bytes, true)?;
-        }
-
-        // Tag 4: respondingAPTitle
-        if let Some(ref title) = self.responding_ap_title {
-            let title_bytes = title.encode()?;
-            field_encoder.encode_context_specific(4, &title_bytes, true)?;
-        }
-
-        // Tag 3: resultSourceDiagnostic (required)
-        let diag_bytes = self.result_source_diagnostic.encode()?;
-        field_encoder.encode_context_specific(3, &diag_bytes, true)?;
-
-        // Tag 2: result (required)
-        let result_bytes = self.result.encode()?;
-        field_encoder.encode_context_specific(2, &result_bytes, true)?;
-
-        // Tag 1: applicationContextName (required)
+        // ENCODE IN FORWARD ORDER (as they appear in the SEQUENCE)
+        // Tag 1: applicationContextName (required) - MUST BE FIRST
         let mut app_ctx_encoder = BerEncoder::new();
         app_ctx_encoder.encode_object_identifier(&self.application_context_name)?;
         let app_ctx_bytes = app_ctx_encoder.into_bytes();
@@ -602,6 +540,71 @@ impl AAREApdu {
             bit_str_encoder.encode_bit_string(protocol_ver, num_bits, 0)?;
             let bit_str_bytes = bit_str_encoder.into_bytes();
             field_encoder.encode_context_specific(0, &bit_str_bytes, false)?;
+        }
+
+        // Tag 2: result (required)
+        let result_bytes = self.result.encode()?;
+        field_encoder.encode_context_specific(2, &result_bytes, true)?;
+
+        // Tag 3: resultSourceDiagnostic (required)
+        let diag_bytes = self.result_source_diagnostic.encode()?;
+        field_encoder.encode_context_specific(3, &diag_bytes, true)?;
+
+        // Tag 4: respondingAPTitle (optional)
+        if let Some(ref title) = self.responding_ap_title {
+            let title_bytes = title.encode()?;
+            field_encoder.encode_context_specific(4, &title_bytes, true)?;
+        }
+
+        // Tag 5: respondingAEQualifier (optional)
+        if let Some(ref qualifier) = self.responding_ae_qualifier {
+            let qual_bytes = qualifier.encode()?;
+            field_encoder.encode_context_specific(5, &qual_bytes, true)?;
+        }
+
+        // Tag 6: respondingAPInvocationIdentifier (optional)
+        if let Some(ref id) = self.responding_ap_invocation_identifier {
+            let id_bytes = id.encode()?;
+            field_encoder.encode_context_specific(6, &id_bytes, true)?;
+        }
+
+        // Tag 7: respondingAEInvocationIdentifier (optional)
+        if let Some(ref id) = self.responding_ae_invocation_identifier {
+            let id_bytes = id.encode()?;
+            field_encoder.encode_context_specific(7, &id_bytes, true)?;
+        }
+
+        // Tag 8: responderAcseRequirements (optional)
+        if let Some(ref requirements) = self.responder_acse_requirements {
+            let req_bytes = requirements.encode()?;
+            field_encoder.encode_context_specific(8, &req_bytes, false)?;
+        }
+
+        // Tag 9: mechanismName (optional)
+        if let Some(ref mechanism) = self.mechanism_name {
+            let mechanism_bytes = mechanism.encode()?;
+            field_encoder.encode_context_specific(9, &mechanism_bytes, false)?;
+        }
+
+        // Tag 10: respondingAuthenticationValue (optional)
+        if let Some(ref auth_value) = self.responding_authentication_value {
+            let auth_bytes = auth_value.encode()?;
+            field_encoder.encode_context_specific(10, &auth_bytes, true)?;
+        }
+
+        // Tag 11: applicationContextNameList (optional)
+        // TODO: Implement when ApplicationContextNameList encoding is complete
+
+        // Tag 29: implementationInformation (optional)
+        if let Some(ref impl_info) = self.implementation_information {
+            let impl_info_bytes = impl_info.encode()?;
+            field_encoder.encode_context_specific(29, &impl_info_bytes, false)?;
+        }
+
+        // Tag 30: userInformation (optional) - LAST
+        if let Some(ref user_info) = self.user_information {
+            let user_info_bytes = user_info.encode()?;
+            field_encoder.encode_context_specific(30, &user_info_bytes, true)?;
         }
 
         // Encode as SEQUENCE
@@ -634,7 +637,9 @@ impl AAREApdu {
         }
 
         // Decode SEQUENCE
-        let mut seq_decoder = BerDecoder::new(value);
+        let mut seq_content_decoder = BerDecoder::new(value);
+        let (_seq_tag, seq_value, _seq_bytes) = seq_content_decoder.decode_tlv()?;
+        let mut seq_decoder = BerDecoder::new(seq_value);
         let mut aare = AAREApdu {
             protocol_version: None,
             application_context_name: Vec::new(),

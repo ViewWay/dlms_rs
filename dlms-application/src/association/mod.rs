@@ -334,6 +334,8 @@ impl Association {
             AssociateResult::Accepted => {
                 // Extract InitiateResponse from user_information
                 if let Some(initiate_bytes) = aare.get_initiate_response() {
+                    eprintln!("initiate_bytes from AARE: {:02X?}", initiate_bytes);
+                    eprintln!("initiate_bytes len: {}", initiate_bytes.len());
                     match InitiateResponse::decode(initiate_bytes) {
                         Ok(initiate_res) => {
                             // Create negotiated parameters
@@ -683,9 +685,11 @@ mod tests {
         let aarq_bytes = association.build_aarq(&initiate_req, None);
         assert!(aarq_bytes.is_ok());
 
+        let bytes = aarq_bytes.unwrap();
+
         // Verify AARQ can be decoded
-        let decoded = AARQApdu::decode(&aarq_bytes.unwrap());
-        assert!(decoded.is_ok());
+        let decoded = AARQApdu::decode(&bytes);
+        assert!(decoded.is_ok(), "Failed to decode AARQ: {:?}", decoded);
     }
 
     #[test]
@@ -709,21 +713,29 @@ mod tests {
         let conformance = crate::pdu::Conformance::new();
         let initiate_res = InitiateResponse::new(6, conformance, 2048, 0x0007).unwrap();
 
+        // Debug: check encoding lengths
+        let initiate_bytes = initiate_res.encode().unwrap();
+        eprintln!("InitiateResponse bytes: {:02X?}", initiate_bytes);
+        eprintln!("InitiateResponse len: {}", initiate_bytes.len());
+
         // Create AARE with InitiateResponse in user_information
         let mut aare = AAREApdu::new(
             vec![1, 0, 17, 0, 0, 8, 0, 101], // DLMS application context
             AssociateResult::Accepted,
             AssociateSourceDiagnostic::null(),
         );
-        let initiate_bytes = initiate_res.encode().unwrap();
         aare.set_initiate_response(initiate_bytes);
 
         let aare_bytes = aare.encode().unwrap();
+        eprintln!("AARE bytes: {:02X?}", aare_bytes);
+        eprintln!("AARE bytes len: {}", aare_bytes.len());
+
         let result = association.process_aare(&aare_bytes);
 
         assert!(result.is_ok());
         let open_result = result.unwrap();
-        assert!(matches!(open_result, OpenResult::Success { .. }));
+        eprintln!("open_result: {:?}", open_result);
+        assert!(matches!(open_result, OpenResult::Success { .. }), "Expected Success, got {:?}", open_result);
         assert_eq!(association.state(), AssociationState::Associated);
         assert!(association.is_active());
     }

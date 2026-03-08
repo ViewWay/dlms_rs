@@ -38,12 +38,12 @@
 //! // Create an OBIS code for active energy (A=1, B=1, C=1, D=8, E=0, F=255)
 //! let obis = ObisCode::new(1, 1, 1, 8, 0, 255);
 //!
-//! // Format as string
-//! assert_eq!(obis.to_string(), "1-1:1.8.0*255");
+//! // Format as string (dot-separated)
+//! assert_eq!(obis.to_string(), "1.1.1.8.0.255");
 //!
 //! // Access individual components
-//! assert_eq!(obis.a, 1);
-//! assert_eq!(obis.d, 8);
+//! assert_eq!(obis.a(), 1);
+//! assert_eq!(obis.d(), 8);
 //! ```
 //!
 //! # Error Handling
@@ -67,16 +67,20 @@
 //! The buffer pool reduces memory allocation overhead by reusing buffers:
 //!
 //! ```rust
-//! use dlms_core::pool::BufferPool;
+//! use dlms_core::pool::{BufferPool, BufferPoolConfig};
 //!
-//! let pool = BufferPool::new(10, 1024); // 10 buffers of 1KB each
+//! let pool = BufferPool::with_config(
+//!     BufferPoolConfig::default()
+//!         .with_initial_capacity(10)
+//!         .with_buffer_size(1024),
+//! );
 //!
 //! {
 //!     let mut buffer = pool.acquire();
 //!     buffer.extend_from_slice(&[1, 2, 3]);
 //! } // Buffer is automatically returned to the pool
 //!
-//! assert_eq!(pool.available(), 10);
+//! assert_eq!(pool.available_count(), 10);
 //! ```
 //!
 //! ## Zero-Copy Operations

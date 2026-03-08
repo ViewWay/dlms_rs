@@ -47,11 +47,11 @@
 //! BER (Basic Encoding Rules) is used for encoding ISO-ACSE PDUs:
 //!
 //! ```rust
-//! use dlms_asn1::{BerEncoder, BerTagClass};
+//! use dlms_asn1::ber::BerEncoder;
 //!
 //! let mut encoder = BerEncoder::new();
-//! encoder.encode_tag(BerTagClass::Application, 0x10)?;
-//! encoder.encode_u32(0x12345678)?;
+//! encoder.encode_integer(0x12345678)?;
+//! let _bytes = encoder.into_bytes();
 //! # Ok::<(), dlms_core::DlmsError>(())
 //! ```
 //!
