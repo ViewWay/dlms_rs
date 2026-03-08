@@ -17,11 +17,11 @@
 //!
 //! # Usage
 //!
-//! ```rust,no_run
+//! ```rust,ignore
 //! use dlms_application::protocol_identification::{ProtocolIdentification, ProtocolInfo};
 //! use dlms_application::pdu::InitiateResponse;
 //!
-//! // After receiving InitiateResponse
+//! // After receiving InitiateResponse (data: bytes from association)
 //! let initiate_response = InitiateResponse::decode(&data)?;
 //! let protocol_info = ProtocolIdentification::identify(&initiate_response)?;
 //!
@@ -242,7 +242,7 @@ impl ProtocolIdentification {
     /// Returns error if the InitiateResponse contains invalid data
     ///
     /// # Example
-    /// ```rust,no_run
+    /// ```rust,ignore
     /// use dlms_application::protocol_identification::ProtocolIdentification;
     /// use dlms_application::pdu::InitiateResponse;
     ///

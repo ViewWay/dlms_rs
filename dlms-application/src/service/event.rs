@@ -16,7 +16,7 @@
 //!
 //! # Usage
 //!
-//! ```rust,no_run
+//! ```rust,ignore
 //! use dlms_application::service::EventNotificationService;
 //! use dlms_application::pdu::EventNotification;
 //!

@@ -17,7 +17,9 @@
       "Bash(pkill:*)",
       "Skill(superpowers:systematic-debugging)",
       "Bash(git checkout:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(git stash pop)",
+      "Bash(git stash drop && cargo test -p dlms-security --lib suite_negotiation validation 2>&1 | tail -10)"
     ]
   }
 }

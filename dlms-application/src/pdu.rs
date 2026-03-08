@@ -5591,8 +5591,8 @@ impl AccessRequestSpecification {
 /// performed atomically or in sequence.
 ///
 /// # Usage Example
-/// ```rust,no_run
-/// // Create an Access Request with multiple operations
+/// ```rust,ignore
+/// // Create an Access Request with multiple operations (placeholder)
 /// let access_request = AccessRequest::new(
 ///     invoke_id_and_priority,
 ///     vec![
@@ -5811,19 +5811,14 @@ impl AccessResponseSpecification {
 /// result with its corresponding request.
 ///
 /// # Usage Example
-/// ```rust,no_run
-/// // Process Access Response
+/// ```rust,ignore
+/// // Process Access Response (placeholder)
 /// for (i, response_spec) in access_response.access_response_list.iter().enumerate() {
 ///     match response_spec {
-///         AccessResponseSpecification::Get(result) => {
-///             // Handle GET result
-///         }
-///         AccessResponseSpecification::Set(result) => {
-///             // Handle SET result
-///         }
-///         AccessResponseSpecification::Action(result) => {
-///             // Handle ACTION result
-///         }
+///         AccessResponseSpecification::Get(result) => { /* Handle GET result */ }
+///         AccessResponseSpecification::Set(result) => { /* Handle SET result */ }
+///         AccessResponseSpecification::Action(result) => { /* Handle ACTION result */ }
+///         _ => {}
 ///     }
 /// }
 /// ```

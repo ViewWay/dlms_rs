@@ -112,9 +112,11 @@ impl EncryptedFrameBuilder {
         nonce.extend_from_slice(&frame_counter.to_be_bytes());
 
         // Build AAD (Additional Authenticated Data)
-        // AAD is typically empty for DLMS, but can include additional authenticated data
-        // For now, we use empty AAD as per DLMS standard
-        let aad = &[];
+        // AAD = System Title (8 bytes) || Frame Counter (4 bytes, big-endian)
+        let mut aad = Vec::with_capacity(12);
+        aad.extend_from_slice(self.context.server_system_title.as_bytes());
+        aad.extend_from_slice(&frame_counter.to_be_bytes());
+        let aad = aad.as_slice();
 
         // Encrypt plaintext
         let ciphertext = if encrypted {

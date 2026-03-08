@@ -1108,7 +1108,7 @@ impl MechanismName {
 ///
 /// # Encoding
 /// Authentication Value is a CHOICE type that can be encoded in different forms.
-/// For DLMS/COSEM, we typically use OCTET STRING (tag [9]) for passwords and
+/// For DLMS/COSEM, we typically use OCTET STRING (tag `[9]`) for passwords and
 /// challenge responses.
 ///
 /// # CHOICE Definition (from DLMS Green Book)

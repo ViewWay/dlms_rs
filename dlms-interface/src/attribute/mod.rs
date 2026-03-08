@@ -397,11 +397,14 @@ impl AttributeRegistry {
             .collect()
     }
 
-    /// Get all selectable attributes
+    /// Get all selectable attributes (ordered by attribute id for stable iteration)
     pub fn get_selectable(&self) -> Vec<&AttributeMetadata> {
-        self.metadata.values()
+        let mut out: Vec<&AttributeMetadata> = self.metadata
+            .values()
             .filter(|m| m.selectable)
-            .collect()
+            .collect();
+        out.sort_by_key(|m| m.id);
+        out
     }
 }
 

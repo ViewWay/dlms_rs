@@ -148,6 +148,10 @@
 //! - [`constants`] - Security-related constants
 //! - [`xdlms`] - xDLMS context management
 //! - [`xdlms_frame`] - Encrypted frame building and parsing
+//! - [`suite_negotiation`] - Security suite negotiation
+//! - [`validation`] - Security parameter validation
+//! - [`key_management`] - Key management and lifecycle
+//! - [`key_agreement`] - Key agreement protocols
 //!
 //! # Implementation Status
 //!
@@ -195,6 +199,10 @@ pub mod utils;
 pub mod constants;
 pub mod xdlms;
 pub mod xdlms_frame;
+pub mod suite_negotiation;
+pub mod validation;
+pub mod key_management;
+pub mod key_agreement;
 
 pub use error::{DlmsError, DlmsResult};
 pub use suite::{
@@ -207,3 +215,20 @@ pub use utils::{KeyId, generate_aes128_key, wrap_aes_rfc3394_key, unwrap_aes_rfc
 pub use constants::*;
 pub use xdlms::{SystemTitle, FrameCounter, KeyDerivationFunction, XdlmsContext};
 pub use xdlms_frame::{EncryptedFrameBuilder, EncryptedFrameParser};
+pub use suite_negotiation::{
+    SecuritySuiteNegotiator, SuiteId, SuiteProposal, NegotiationState,
+    NegotiationTimeout, NegotiationError, NegotiationParameters,
+    create_common_suites, suite_id_from_ids, suite_id_to_ids,
+};
+pub use validation::{
+    SecurityParameterValidator, ValidationResult, ValidationError, ValidationWarning,
+    ErrorCode, WarningCode, ValidationRule, validate_key_vector,
+};
+pub use key_management::{
+    KeyManager, ProtectedKey, KeyStorage, KeyType, KeyRotationPolicy,
+    InMemoryKeyStorage, SessionKeys, KeyGenerator,
+};
+pub use key_agreement::{
+    KeyAgreement, KeyAgreementProtocol, KeyAgreementRole, KeyAgreementState,
+    KeyAgreementMessage, SharedSecret, PskConfig, PskKeyAgreement, KeyAgreementResult,
+};

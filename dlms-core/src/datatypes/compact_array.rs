@@ -2,8 +2,8 @@
 //!
 //! Compact arrays are used to efficiently store arrays of identical data types.
 //! The encoding consists of:
-//! - [0] contents-description: TypeDescription
-//! - [1] array-contents: IMPLICIT OCTET STRING
+//! - `[0]` contents-description: TypeDescription
+//! - `[1]` array-contents: IMPLICIT OCTET STRING
 
 use crate::error::{DlmsError, DlmsResult};
 use crate::datatypes::cosem_date::CosemDateFormat;

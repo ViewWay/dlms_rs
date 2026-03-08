@@ -111,7 +111,7 @@ impl PooledBuffer {
         &mut self.data
     }
 
-    /// Convert to a Vec<u8> without returning to pool
+    /// Convert to a `Vec<u8>` without returning to pool
     pub fn into_vec(mut self) -> Vec<u8> {
         self.pool = None; // Don't return to pool
         std::mem::take(&mut self.data)

@@ -116,10 +116,10 @@
 //! # Module Structure
 //!
 //! - [`hdlc`] - HDLC protocol implementation
-//!   - [`connection`] - HDLC connection management
-//!   - [`frame`] - HDLC frame encoding/decoding
-//!   - [`window`] - Sliding window protocol
-//!   - [`address`] - HDLC addressing
+//!   - [`hdlc::connection`] - HDLC connection management
+//!   - [`hdlc::frame`] - HDLC frame encoding/decoding
+//!   - [`hdlc::window`] - Sliding window protocol
+//!   - [`hdlc::address`] - HDLC addressing
 //! - [`error`] - Session layer error types
 //!
 //! # Implementation Status

@@ -45,7 +45,7 @@ impl SecurityPolicy {
 }
 
 /// Encryption mechanism
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EncryptionMechanism {
     /// Do not encrypt transport
     None = -1,
@@ -97,7 +97,7 @@ impl EncryptionMechanism {
 }
 
 /// Authentication mechanism
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum AuthenticationMechanism {
     /// No authentication used (no mechanism presented in AARQ message)
     Absent = -1,
@@ -299,6 +299,25 @@ impl SecuritySuite {
     /// Create a new security suite builder
     pub fn builder() -> SecuritySuiteBuilder {
         SecuritySuiteBuilder::new()
+    }
+
+    /// Create a security suite from mechanisms without keys (internal use)
+    ///
+    /// This creates a SecuritySuite with the specified mechanisms but no keys.
+    /// Keys should be set separately using the update methods.
+    pub(crate) fn from_mechanisms(
+        encryption: EncryptionMechanism,
+        authentication: AuthenticationMechanism,
+        policy: SecurityPolicy,
+    ) -> Self {
+        Self {
+            global_unicast_encryption_key: None,
+            authentication_key: None,
+            password: None,
+            encryption_mechanism: encryption,
+            authentication_mechanism: authentication,
+            security_policy: policy,
+        }
     }
 
     /// Get the global unicast encryption key

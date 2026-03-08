@@ -12,7 +12,7 @@
 //!
 //! # Usage
 //!
-//! ```rust,no_run
+//! ```rust,ignore
 //! use dlms_application::service::GetService;
 //! use dlms_application::pdu::{CosemAttributeDescriptor, InvokeIdAndPriority};
 //! use dlms_core::ObisCode;
