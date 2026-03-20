@@ -137,15 +137,19 @@ macro_rules! impl_cosem_object_for {
                 $class_id
             }
 
-            fn version(&self) -> u8 {
-                0 // Default version
-            }
-
             async fn get_attribute(
                 &self,
                 attribute_id: u8,
                 _access_selector: Option<&$crate::dlms_application::pdu::SelectiveAccessDescriptor>,
+                ctx: Option<&$crate::association_access::CosemInvocationContext>,
             ) -> $crate::DlmsResult<$crate::DataObject> {
+                $crate::enforce_attribute_read(
+                    ctx,
+                    self.class_id(),
+                    self.obis_code(),
+                    attribute_id,
+                )
+                .await?;
                 match attribute_id {
                     $(
                         $attr_id => self.$attr_getter().await,
@@ -161,7 +165,15 @@ macro_rules! impl_cosem_object_for {
                 attribute_id: u8,
                 value: $crate::DataObject,
                 _access_selector: Option<&$crate::dlms_application::pdu::SelectiveAccessDescriptor>,
+                ctx: Option<&$crate::association_access::CosemInvocationContext>,
             ) -> $crate::DlmsResult<()> {
+                $crate::enforce_attribute_write(
+                    ctx,
+                    self.class_id(),
+                    self.obis_code(),
+                    attribute_id,
+                )
+                .await?;
                 match attribute_id {
                     $(
                         $attr_id => {
@@ -180,8 +192,16 @@ macro_rules! impl_cosem_object_for {
                 &self,
                 method_id: u8,
                 _parameters: Option<$crate::DataObject>,
-                _data_block_index: Option<u8>,
+                _selective_access: Option<&$crate::dlms_application::pdu::SelectiveAccessDescriptor>,
+                ctx: Option<&$crate::association_access::CosemInvocationContext>,
             ) -> $crate::DlmsResult<Option<$crate::DataObject>> {
+                $crate::enforce_method_execute(
+                    ctx,
+                    self.class_id(),
+                    self.obis_code(),
+                    method_id,
+                )
+                .await?;
                 match method_id {
                     $(
                         $(

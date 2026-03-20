@@ -315,7 +315,9 @@ impl CosemObject for BooleanArray {
         &self,
         attribute_id: u8,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<DataObject> {
+        crate::enforce_attribute_read(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Ok(DataObject::OctetString(self.logical_name.to_bytes().to_vec()))
@@ -342,7 +344,9 @@ impl CosemObject for BooleanArray {
         attribute_id: u8,
         value: DataObject,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<()> {
+        crate::enforce_attribute_write(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Err(DlmsError::AccessDenied(
@@ -396,7 +400,9 @@ impl CosemObject for BooleanArray {
         method_id: u8,
         _parameters: Option<DataObject>,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<Option<DataObject>> {
+        crate::enforce_method_execute(ctx, self.class_id(), self.obis_code(), method_id).await?;
         Err(DlmsError::InvalidData(format!(
             "BooleanArray has no method {}",
             method_id
@@ -656,7 +662,7 @@ mod tests {
         let ba = BooleanArray::with_value(ObisCode::new(0, 0, 91, 0, 0, 255), vec![true, false]);
 
         // Test value
-        let result = ba.get_attribute(2, None).await.unwrap();
+        let result = ba.get_attribute(2, None, None).await.unwrap();
         match result {
             DataObject::Array(items) => {
                 assert_eq!(items.len(), 2);
@@ -669,7 +675,7 @@ mod tests {
         }
 
         // Test max_size
-        let result = ba.get_attribute(3, None).await.unwrap();
+        let result = ba.get_attribute(3, None, None).await.unwrap();
         match result {
             DataObject::Unsigned16(max_size) => assert_eq!(max_size, 255),
             _ => panic!("Expected Unsigned16"),
@@ -680,14 +686,21 @@ mod tests {
     async fn test_boolean_array_set_attributes() {
         let ba = BooleanArray::with_default_obis();
 
-        ba.set_attribute(2, DataObject::Array(vec![
-            DataObject::Boolean(true),
-            DataObject::Boolean(false),
-            DataObject::Boolean(true),
-        ]), None).await.unwrap();
+        ba.set_attribute(
+            2,
+            DataObject::Array(vec![
+                DataObject::Boolean(true),
+                DataObject::Boolean(false),
+                DataObject::Boolean(true),
+            ]),
+            None,
+            None,
+        )
+        .await
+        .unwrap();
         assert_eq!(ba.value().await, vec![true, false, true]);
 
-        ba.set_attribute(3, DataObject::Unsigned16(512), None)
+        ba.set_attribute(3, DataObject::Unsigned16(512), None, None)
             .await
             .unwrap();
         assert_eq!(ba.max_size().await, 512);
@@ -696,7 +709,7 @@ mod tests {
     #[tokio::test]
     async fn test_boolean_array_set_max_size_u8() {
         let ba = BooleanArray::with_default_obis();
-        ba.set_attribute(3, DataObject::Unsigned8(200), None)
+        ba.set_attribute(3, DataObject::Unsigned8(200), None, None)
             .await
             .unwrap();
         assert_eq!(ba.max_size().await, 200);
@@ -706,7 +719,7 @@ mod tests {
     async fn test_boolean_array_read_only_logical_name() {
         let ba = BooleanArray::with_default_obis();
         let result = ba
-            .set_attribute(1, DataObject::OctetString(vec![0, 0, 91, 0, 0, 1]), None)
+            .set_attribute(1, DataObject::OctetString(vec![0, 0, 91, 0, 0, 1]), None, None)
             .await;
         assert!(result.is_err());
     }
@@ -714,14 +727,14 @@ mod tests {
     #[tokio::test]
     async fn test_boolean_array_invalid_attribute() {
         let ba = BooleanArray::with_default_obis();
-        let result = ba.get_attribute(99, None).await;
+        let result = ba.get_attribute(99, None, None).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_boolean_array_invalid_method() {
         let ba = BooleanArray::with_default_obis();
-        let result = ba.invoke_method(1, None, None).await;
+        let result = ba.invoke_method(1, None, None, None).await;
         assert!(result.is_err());
     }
 
@@ -748,17 +761,24 @@ mod tests {
     #[tokio::test]
     async fn test_boolean_array_invalid_value_type() {
         let ba = BooleanArray::with_default_obis();
-        let result = ba.set_attribute(2, DataObject::OctetString(vec![1, 2]), None).await;
+        let result = ba.set_attribute(2, DataObject::OctetString(vec![1, 2]), None, None).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_boolean_array_invalid_array_element() {
         let ba = BooleanArray::with_default_obis();
-        let result = ba.set_attribute(2, DataObject::Array(vec![
-            DataObject::Boolean(true),
-            DataObject::Unsigned8(42),
-        ]), None).await;
+        let result = ba
+            .set_attribute(
+                2,
+                DataObject::Array(vec![
+                    DataObject::Boolean(true),
+                    DataObject::Unsigned8(42),
+                ]),
+                None,
+                None,
+            )
+            .await;
         assert!(result.is_err());
     }
 }

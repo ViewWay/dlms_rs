@@ -465,7 +465,9 @@ impl CosemObject for Unit {
         &self,
         attribute_id: u8,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<DataObject> {
+        crate::enforce_attribute_read(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Ok(DataObject::OctetString(self.logical_name.to_bytes().to_vec()))
@@ -494,7 +496,9 @@ impl CosemObject for Unit {
         attribute_id: u8,
         value: DataObject,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<()> {
+        crate::enforce_attribute_write(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Err(DlmsError::AccessDenied(
@@ -557,7 +561,9 @@ impl CosemObject for Unit {
         method_id: u8,
         _parameters: Option<DataObject>,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<Option<DataObject>> {
+        crate::enforce_method_execute(ctx, self.class_id(), self.obis_code(), method_id).await?;
         Err(DlmsError::InvalidData(format!(
             "Unit has no method {}",
             method_id
@@ -756,14 +762,14 @@ mod tests {
         let unit = Unit::with_unit(ObisCode::new(0, 0, 3, 0, 0, 255), UnitId::Watt);
 
         // Test unit_id
-        let result = unit.get_attribute(2, None).await.unwrap();
+        let result = unit.get_attribute(2, None, None).await.unwrap();
         match result {
             DataObject::Enumerate(id) => assert_eq!(id, 27), // Watt
             _ => panic!("Expected Enumerate"),
         }
 
         // Test scale_factor
-        let result = unit.get_attribute(5, None).await.unwrap();
+        let result = unit.get_attribute(5, None, None).await.unwrap();
         match result {
             DataObject::Integer8(factor) => assert_eq!(factor, 0),
             _ => panic!("Expected Integer8"),
@@ -774,12 +780,12 @@ mod tests {
     async fn test_unit_set_attributes() {
         let unit = Unit::with_default_obis();
 
-        unit.set_attribute(2, DataObject::Enumerate(30), None) // WattHour
+        unit.set_attribute(2, DataObject::Enumerate(30), None, None) // WattHour
             .await
             .unwrap();
         assert_eq!(unit.unit_id().await, UnitId::WattHour);
 
-        unit.set_attribute(5, DataObject::Integer8(-1), None)
+        unit.set_attribute(5, DataObject::Integer8(-1), None, None)
             .await
             .unwrap();
         assert_eq!(unit.scale_factor().await, -1);
@@ -789,7 +795,7 @@ mod tests {
     async fn test_unit_read_only_logical_name() {
         let unit = Unit::with_default_obis();
         let result = unit
-            .set_attribute(1, DataObject::OctetString(vec![0, 0, 3, 0, 0, 1]), None)
+            .set_attribute(1, DataObject::OctetString(vec![0, 0, 3, 0, 0, 1]), None, None)
             .await;
         assert!(result.is_err());
     }
@@ -797,14 +803,14 @@ mod tests {
     #[tokio::test]
     async fn test_unit_invalid_attribute() {
         let unit = Unit::with_default_obis();
-        let result = unit.get_attribute(99, None).await;
+        let result = unit.get_attribute(99, None, None).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_unit_invalid_method() {
         let unit = Unit::with_default_obis();
-        let result = unit.invoke_method(1, None, None).await;
+        let result = unit.invoke_method(1, None, None, None).await;
         assert!(result.is_err());
     }
 
@@ -826,7 +832,7 @@ mod tests {
         let unit = Unit::with_default_obis();
         unit.set_unit_name(String::from("Test Unit")).await;
 
-        let result = unit.get_attribute(3, None).await.unwrap();
+        let result = unit.get_attribute(3, None, None).await.unwrap();
         match result {
             DataObject::OctetString(bytes) => {
                 assert_eq!(String::from_utf8_lossy(&bytes), "Test Unit");
@@ -840,7 +846,7 @@ mod tests {
         let unit = Unit::with_default_obis();
         unit.set_unit_symbol(String::from("kW")).await;
 
-        let result = unit.get_attribute(4, None).await.unwrap();
+        let result = unit.get_attribute(4, None, None).await.unwrap();
         match result {
             DataObject::OctetString(bytes) => {
                 assert_eq!(String::from_utf8_lossy(&bytes), "kW");

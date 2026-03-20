@@ -308,7 +308,9 @@ impl CosemObject for Login {
         &self,
         attribute_id: u8,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<DataObject> {
+        crate::enforce_attribute_read(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Ok(DataObject::OctetString(self.logical_name.to_bytes().to_vec()))
@@ -343,7 +345,9 @@ impl CosemObject for Login {
         attribute_id: u8,
         value: DataObject,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<()> {
+        crate::enforce_attribute_write(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Err(DlmsError::AccessDenied(
@@ -428,7 +432,9 @@ impl CosemObject for Login {
         method_id: u8,
         _parameters: Option<DataObject>,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<Option<DataObject>> {
+        crate::enforce_method_execute(ctx, self.class_id(), self.obis_code(), method_id).await?;
         Err(DlmsError::InvalidData(format!(
             "Login has no method {}",
             method_id
@@ -606,21 +612,21 @@ mod tests {
         let login = Login::with_default_obis();
 
         // Test authentication_status
-        let result = login.get_attribute(3, None).await.unwrap();
+        let result = login.get_attribute(3, None, None).await.unwrap();
         match result {
             DataObject::Enumerate(status) => assert_eq!(status, 0), // NotAuthenticated
             _ => panic!("Expected Enumerate"),
         }
 
         // Test max_login_attempts
-        let result = login.get_attribute(4, None).await.unwrap();
+        let result = login.get_attribute(4, None, None).await.unwrap();
         match result {
             DataObject::Unsigned8(attempts) => assert_eq!(attempts, 3),
             _ => panic!("Expected Unsigned8"),
         }
 
         // Test session_timeout
-        let result = login.get_attribute(6, None).await.unwrap();
+        let result = login.get_attribute(6, None, None).await.unwrap();
         match result {
             DataObject::Unsigned32(timeout) => assert_eq!(timeout, 300),
             _ => panic!("Expected Unsigned32"),
@@ -631,12 +637,12 @@ mod tests {
     async fn test_set_attributes() {
         let login = Login::with_default_obis();
 
-        login.set_attribute(4, DataObject::Unsigned8(5), None)
+        login.set_attribute(4, DataObject::Unsigned8(5), None, None)
             .await
             .unwrap();
         assert_eq!(login.max_login_attempts().await, 5);
 
-        login.set_attribute(6, DataObject::Unsigned32(600), None)
+        login.set_attribute(6, DataObject::Unsigned32(600), None, None)
             .await
             .unwrap();
         assert_eq!(login.session_timeout().await, 600);
@@ -645,7 +651,7 @@ mod tests {
     #[tokio::test]
     async fn test_set_session_timeout_u16() {
         let login = Login::with_default_obis();
-        login.set_attribute(6, DataObject::Unsigned16(900), None)
+        login.set_attribute(6, DataObject::Unsigned16(900), None, None)
             .await
             .unwrap();
         assert_eq!(login.session_timeout().await, 900);
@@ -655,7 +661,7 @@ mod tests {
     async fn test_set_current_user_logout() {
         let login = Login::with_default_obis();
         login.login("user1", "password").await.unwrap();
-        login.set_attribute(2, DataObject::OctetString(Vec::new()), None)
+        login.set_attribute(2, DataObject::OctetString(Vec::new()), None, None)
             .await
             .unwrap();
         assert!(!login.is_logged_in().await);
@@ -665,7 +671,7 @@ mod tests {
     async fn test_read_only_logical_name() {
         let login = Login::with_default_obis();
         let result = login
-            .set_attribute(1, DataObject::OctetString(vec![0, 0, 93, 0, 0, 1]), None)
+            .set_attribute(1, DataObject::OctetString(vec![0, 0, 93, 0, 0, 1]), None, None)
             .await;
         assert!(result.is_err());
     }
@@ -673,14 +679,14 @@ mod tests {
     #[tokio::test]
     async fn test_invalid_attribute() {
         let login = Login::with_default_obis();
-        let result = login.get_attribute(99, None).await;
+        let result = login.get_attribute(99, None, None).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_invalid_method() {
         let login = Login::with_default_obis();
-        let result = login.invoke_method(1, None, None).await;
+        let result = login.invoke_method(1, None, None, None).await;
         assert!(result.is_err());
     }
 

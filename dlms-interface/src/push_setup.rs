@@ -450,7 +450,9 @@ impl CosemObject for PushSetup {
         &self,
         attribute_id: u8,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<DataObject> {
+        crate::enforce_attribute_read(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Ok(DataObject::OctetString(self.logical_name.to_bytes().to_vec()))
@@ -496,7 +498,9 @@ impl CosemObject for PushSetup {
         attribute_id: u8,
         value: DataObject,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<()> {
+        crate::enforce_attribute_write(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Err(DlmsError::AccessDenied(
@@ -612,7 +616,9 @@ impl CosemObject for PushSetup {
         method_id: u8,
         parameters: Option<DataObject>,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<Option<DataObject>> {
+        crate::enforce_method_execute(ctx, self.class_id(), self.obis_code(), method_id).await?;
         match method_id {
             Self::METHOD_PUSH => {
                 let push_id = match parameters {
@@ -771,7 +777,7 @@ mod tests {
     #[tokio::test]
     async fn test_push_setup_get_logical_name() {
         let setup = PushSetup::with_default_obis();
-        let result = setup.get_attribute(1, None).await.unwrap();
+        let result = setup.get_attribute(1, None, None).await.unwrap();
 
         match result {
             DataObject::OctetString(bytes) => {
@@ -784,7 +790,7 @@ mod tests {
     #[tokio::test]
     async fn test_push_setup_get_push_object_list() {
         let setup = PushSetup::with_default_obis();
-        let result = setup.get_attribute(2, None).await.unwrap();
+        let result = setup.get_attribute(2, None, None).await.unwrap();
 
         match result {
             DataObject::Array(arr) => {
@@ -798,7 +804,7 @@ mod tests {
     async fn test_push_setup_get_destination() {
         let setup = PushSetup::with_default_obis();
         setup.set_destination(Some("test.com".to_string())).await;
-        let result = setup.get_attribute(3, None).await.unwrap();
+        let result = setup.get_attribute(3, None, None).await.unwrap();
 
         match result {
             DataObject::Array(arr) => {
@@ -811,12 +817,12 @@ mod tests {
     #[tokio::test]
     async fn test_push_setup_get_communication_window() {
         let setup = PushSetup::with_default_obis();
-        let result = setup.get_attribute(4, None).await.unwrap();
+        let result = setup.get_attribute(4, None, None).await.unwrap();
         assert_eq!(result, DataObject::Null);
 
         let window = CommunicationWindow::new(600, 1200).unwrap();
         setup.set_communication_window(Some(window)).await;
-        let result = setup.get_attribute(4, None).await.unwrap();
+        let result = setup.get_attribute(4, None, None).await.unwrap();
 
         match result {
             DataObject::Array(arr) => {
@@ -829,7 +835,7 @@ mod tests {
     #[tokio::test]
     async fn test_push_setup_get_repeat_time() {
         let setup = PushSetup::with_default_obis();
-        let result = setup.get_attribute(7, None).await.unwrap();
+        let result = setup.get_attribute(7, None, None).await.unwrap();
         assert_eq!(result, DataObject::Unsigned32(60));
     }
 
@@ -842,7 +848,7 @@ mod tests {
             DataObject::Unsigned8(2),
         ]);
         setup
-            .set_attribute(2, DataObject::Array(vec![obj_data]), None)
+            .set_attribute(2, DataObject::Array(vec![obj_data]), None, None)
             .await
             .unwrap();
 
@@ -860,6 +866,7 @@ mod tests {
                     DataObject::Enumerate(6), // HTTP
                 ]),
                 None,
+                None,
             )
             .await
             .unwrap();
@@ -872,7 +879,7 @@ mod tests {
     async fn test_push_setup_set_repeat_time_via_attribute() {
         let setup = PushSetup::with_default_obis();
         setup
-            .set_attribute(7, DataObject::Unsigned32(120), None)
+            .set_attribute(7, DataObject::Unsigned32(120), None, None)
             .await
             .unwrap();
         assert_eq!(setup.push_repeat_time().await, 120);
@@ -882,7 +889,7 @@ mod tests {
     async fn test_push_setup_read_only_logical_name() {
         let setup = PushSetup::with_default_obis();
         let result = setup
-            .set_attribute(1, DataObject::OctetString(vec![0, 0, 42, 0, 0, 1]), None)
+            .set_attribute(1, DataObject::OctetString(vec![0, 0, 42, 0, 0, 1]), None, None)
             .await;
         assert!(result.is_err());
     }
@@ -894,21 +901,21 @@ mod tests {
         setup
             .add_push_object(PushObjectDefinition::new(3, ObisCode::new(1, 1, 1, 1, 1, 255), 2))
             .await;
-        let result = setup.invoke_method(1, Some(DataObject::Unsigned8(1)), None).await;
+        let result = setup.invoke_method(1, Some(DataObject::Unsigned8(1)), None, None).await;
         assert!(result.is_ok());
     }
 
     #[tokio::test]
     async fn test_push_setup_invalid_attribute() {
         let setup = PushSetup::with_default_obis();
-        let result = setup.get_attribute(99, None).await;
+        let result = setup.get_attribute(99, None, None).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_push_setup_invalid_method() {
         let setup = PushSetup::with_default_obis();
-        let result = setup.invoke_method(99, None, None).await;
+        let result = setup.invoke_method(99, None, None, None).await;
         assert!(result.is_err());
     }
 

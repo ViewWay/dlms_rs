@@ -258,7 +258,9 @@ impl CosemObject for Ip4Setup {
         &self,
         attribute_id: u8,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<DataObject> {
+        crate::enforce_attribute_read(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Ok(DataObject::OctetString(self.logical_name.to_bytes().to_vec()))
@@ -296,7 +298,9 @@ impl CosemObject for Ip4Setup {
         attribute_id: u8,
         value: DataObject,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<()> {
+        crate::enforce_attribute_write(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Err(DlmsError::AccessDenied(
@@ -356,7 +360,9 @@ impl CosemObject for Ip4Setup {
         method_id: u8,
         _parameters: Option<DataObject>,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<Option<DataObject>> {
+        crate::enforce_method_execute(ctx, self.class_id(), self.obis_code(), method_id).await?;
         Err(DlmsError::InvalidData(format!(
             "IP4 Setup has no method {}",
             method_id
@@ -472,21 +478,21 @@ mod tests {
         let setup = Ip4Setup::with_default_obis();
 
         // Test logical_name
-        let result = setup.get_attribute(1, None).await.unwrap();
+        let result = setup.get_attribute(1, None, None).await.unwrap();
         match result {
             DataObject::OctetString(bytes) => assert_eq!(bytes.len(), 6),
             _ => panic!("Expected OctetString"),
         }
 
         // Test ip_address
-        let result = setup.get_attribute(2, None).await.unwrap();
+        let result = setup.get_attribute(2, None, None).await.unwrap();
         match result {
             DataObject::OctetString(bytes) => assert_eq!(bytes, vec![0, 0, 0, 0]),
             _ => panic!("Expected OctetString"),
         }
 
         // Test ip_address_method
-        let result = setup.get_attribute(7, None).await.unwrap();
+        let result = setup.get_attribute(7, None, None).await.unwrap();
         match result {
             DataObject::Enumerate(method) => assert_eq!(method, 0), // Static
             _ => panic!("Expected Enumerate"),
@@ -498,19 +504,19 @@ mod tests {
         let setup = Ip4Setup::with_default_obis();
 
         setup
-            .set_attribute(2, DataObject::OctetString(vec![192, 168, 1, 100]), None)
+            .set_attribute(2, DataObject::OctetString(vec![192, 168, 1, 100]), None, None)
             .await
             .unwrap();
         assert_eq!(setup.ip_address().await, [192, 168, 1, 100]);
 
         setup
-            .set_attribute(3, DataObject::OctetString(vec![255, 255, 255, 0]), None)
+            .set_attribute(3, DataObject::OctetString(vec![255, 255, 255, 0]), None, None)
             .await
             .unwrap();
         assert_eq!(setup.subnet_mask().await, [255, 255, 255, 0]);
 
         setup
-            .set_attribute(7, DataObject::Enumerate(1), None)
+            .set_attribute(7, DataObject::Enumerate(1), None, None)
             .await
             .unwrap();
         assert_eq!(setup.ip_address_method().await, IpAddressMethod::Dhcp);
@@ -520,7 +526,7 @@ mod tests {
     async fn test_ip4_setup_read_only_logical_name() {
         let setup = Ip4Setup::with_default_obis();
         let result = setup
-            .set_attribute(1, DataObject::OctetString(vec![0, 0, 26, 0, 0, 1]), None)
+            .set_attribute(1, DataObject::OctetString(vec![0, 0, 26, 0, 0, 1]), None, None)
             .await;
         assert!(result.is_err());
     }
@@ -528,14 +534,14 @@ mod tests {
     #[tokio::test]
     async fn test_ip4_setup_invalid_attribute() {
         let setup = Ip4Setup::with_default_obis();
-        let result = setup.get_attribute(99, None).await;
+        let result = setup.get_attribute(99, None, None).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_ip4_setup_invalid_method() {
         let setup = Ip4Setup::with_default_obis();
-        let result = setup.invoke_method(1, None, None).await;
+        let result = setup.invoke_method(1, None, None, None).await;
         assert!(result.is_err());
     }
 
@@ -543,7 +549,7 @@ mod tests {
     async fn test_ip4_setup_invalid_ip_address() {
         let setup = Ip4Setup::with_default_obis();
         let result = setup
-            .set_attribute(2, DataObject::OctetString(vec![1, 2]), None)
+            .set_attribute(2, DataObject::OctetString(vec![1, 2]), None, None)
             .await;
         assert!(result.is_err());
     }

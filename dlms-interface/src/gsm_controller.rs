@@ -335,7 +335,9 @@ impl CosemObject for GsmController {
         &self,
         attribute_id: u8,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<DataObject> {
+        crate::enforce_attribute_read(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Ok(DataObject::OctetString(self.logical_name.to_bytes().to_vec()))
@@ -373,7 +375,9 @@ impl CosemObject for GsmController {
         attribute_id: u8,
         value: DataObject,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<()> {
+        crate::enforce_attribute_write(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Err(DlmsError::AccessDenied(
@@ -473,7 +477,9 @@ impl CosemObject for GsmController {
         method_id: u8,
         _parameters: Option<DataObject>,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<Option<DataObject>> {
+        crate::enforce_method_execute(ctx, self.class_id(), self.obis_code(), method_id).await?;
         Err(DlmsError::InvalidData(format!(
             "GsmController has no method {}",
             method_id
@@ -698,21 +704,21 @@ mod tests {
         let gsm = GsmController::with_default_obis();
 
         // Test gsm_enabled
-        let result = gsm.get_attribute(2, None).await.unwrap();
+        let result = gsm.get_attribute(2, None, None).await.unwrap();
         match result {
             DataObject::Boolean(enabled) => assert!(!enabled),
             _ => panic!("Expected Boolean"),
         }
 
         // Test signal_strength
-        let result = gsm.get_attribute(3, None).await.unwrap();
+        let result = gsm.get_attribute(3, None, None).await.unwrap();
         match result {
             DataObject::Enumerate(strength) => assert_eq!(strength, 255), // Unknown
             _ => panic!("Expected Enumerate"),
         }
 
         // Test connection_status
-        let result = gsm.get_attribute(6, None).await.unwrap();
+        let result = gsm.get_attribute(6, None, None).await.unwrap();
         match result {
             DataObject::Enumerate(status) => assert_eq!(status, 0), // Disconnected
             _ => panic!("Expected Enumerate"),
@@ -723,17 +729,17 @@ mod tests {
     async fn test_gsm_controller_set_attributes() {
         let gsm = GsmController::with_default_obis();
 
-        gsm.set_attribute(2, DataObject::Boolean(true), None)
+        gsm.set_attribute(2, DataObject::Boolean(true), None, None)
             .await
             .unwrap();
         assert!(gsm.gsm_enabled().await);
 
-        gsm.set_attribute(3, DataObject::Enumerate(4), None) // Good
+        gsm.set_attribute(3, DataObject::Enumerate(4), None, None) // Good
             .await
             .unwrap();
         assert_eq!(gsm.signal_strength().await, SignalStrength::Good);
 
-        gsm.set_attribute(5, DataObject::OctetString(b"apn.example.com".to_vec()), None)
+        gsm.set_attribute(5, DataObject::OctetString(b"apn.example.com".to_vec()), None, None)
             .await
             .unwrap();
         assert_eq!(gsm.apn().await, "apn.example.com");
@@ -743,7 +749,7 @@ mod tests {
     async fn test_gsm_controller_read_only_logical_name() {
         let gsm = GsmController::with_default_obis();
         let result = gsm
-            .set_attribute(1, DataObject::OctetString(vec![0, 0, 28, 0, 0, 1]), None)
+            .set_attribute(1, DataObject::OctetString(vec![0, 0, 28, 0, 0, 1]), None, None)
             .await;
         assert!(result.is_err());
     }
@@ -751,14 +757,14 @@ mod tests {
     #[tokio::test]
     async fn test_gsm_controller_invalid_attribute() {
         let gsm = GsmController::with_default_obis();
-        let result = gsm.get_attribute(99, None).await;
+        let result = gsm.get_attribute(99, None, None).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_gsm_controller_invalid_method() {
         let gsm = GsmController::with_default_obis();
-        let result = gsm.invoke_method(1, None, None).await;
+        let result = gsm.invoke_method(1, None, None, None).await;
         assert!(result.is_err());
     }
 }

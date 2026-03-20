@@ -98,7 +98,9 @@ impl CosemObject for Data {
         &self,
         attribute_id: u8,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<DataObject> {
+        crate::enforce_attribute_read(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             1 => {
                 // Attribute 1: logical_name (OBIS code)
@@ -120,7 +122,9 @@ impl CosemObject for Data {
         attribute_id: u8,
         value: DataObject,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<()> {
+        crate::enforce_attribute_write(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             1 => {
                 // Attribute 1: logical_name is read-only
@@ -145,7 +149,9 @@ impl CosemObject for Data {
         method_id: u8,
         _parameters: Option<DataObject>,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<Option<DataObject>> {
+        crate::enforce_method_execute(ctx, self.class_id(), self.obis_code(), method_id).await?;
         Err(DlmsError::InvalidData(format!(
             "Data interface class has no method {}",
             method_id
@@ -175,7 +181,7 @@ mod tests {
         let data = Data::new(obis, value.clone());
 
         // Get attribute 1 (logical_name)
-        let attr1 = data.get_attribute(1, None).await.unwrap();
+        let attr1 = data.get_attribute(1, None, None).await.unwrap();
         if let DataObject::OctetString(bytes) = attr1 {
             assert_eq!(bytes, obis.to_bytes());
         } else {
@@ -183,7 +189,7 @@ mod tests {
         }
 
         // Get attribute 2 (value)
-        let attr2 = data.get_attribute(2, None).await.unwrap();
+        let attr2 = data.get_attribute(2, None, None).await.unwrap();
         assert_eq!(attr2, value);
     }
 
@@ -195,15 +201,15 @@ mod tests {
 
         // Set attribute 2 (value)
         let new_value = DataObject::Integer32(67890);
-        data.set_attribute(2, new_value.clone(), None).await.unwrap();
+        data.set_attribute(2, new_value.clone(), None, None).await.unwrap();
 
         // Verify the value was updated
-        let current_value = data.get_attribute(2, None).await.unwrap();
+        let current_value = data.get_attribute(2, None, None).await.unwrap();
         assert_eq!(current_value, new_value);
 
         // Try to set attribute 1 (should fail - read-only)
         let result = data
-            .set_attribute(1, DataObject::OctetString(vec![1, 2, 3, 4, 5, 6]), None)
+            .set_attribute(1, DataObject::OctetString(vec![1, 2, 3, 4, 5, 6]), None, None)
             .await;
         assert!(result.is_err());
     }
@@ -215,11 +221,11 @@ mod tests {
         let data = Data::new(obis, value);
 
         // Try to get non-existent attribute
-        let result = data.get_attribute(99, None).await;
+        let result = data.get_attribute(99, None, None).await;
         assert!(result.is_err());
 
         // Try to set non-existent attribute
-        let result = data.set_attribute(99, DataObject::Integer32(0), None).await;
+        let result = data.set_attribute(99, DataObject::Integer32(0), None, None).await;
         assert!(result.is_err());
     }
 
@@ -230,7 +236,7 @@ mod tests {
         let data = Data::new(obis, value);
 
         // Try to invoke a method (should fail - no methods)
-        let result = data.invoke_method(1, None, None).await;
+        let result = data.invoke_method(1, None, None, None).await;
         assert!(result.is_err());
     }
 }

@@ -211,7 +211,9 @@ impl CosemObject for StringInterface {
         &self,
         attribute_id: u8,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<DataObject> {
+        crate::enforce_attribute_read(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Ok(DataObject::OctetString(self.logical_name.to_bytes().to_vec()))
@@ -234,7 +236,9 @@ impl CosemObject for StringInterface {
         attribute_id: u8,
         value: DataObject,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<()> {
+        crate::enforce_attribute_write(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Err(DlmsError::AccessDenied(
@@ -280,7 +284,9 @@ impl CosemObject for StringInterface {
         method_id: u8,
         _parameters: Option<DataObject>,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<Option<DataObject>> {
+        crate::enforce_method_execute(ctx, self.class_id(), self.obis_code(), method_id).await?;
         Err(DlmsError::InvalidData(format!(
             "StringInterface has no method {}",
             method_id
@@ -429,7 +435,7 @@ mod tests {
         let s = StringInterface::with_value(ObisCode::new(0, 0, 90, 0, 0, 255), "Test".to_string());
 
         // Test value
-        let result = s.get_attribute(2, None).await.unwrap();
+        let result = s.get_attribute(2, None, None).await.unwrap();
         match result {
             DataObject::OctetString(bytes) => {
                 assert_eq!(String::from_utf8_lossy(&bytes), "Test");
@@ -438,7 +444,7 @@ mod tests {
         }
 
         // Test max_length
-        let result = s.get_attribute(3, None).await.unwrap();
+        let result = s.get_attribute(3, None, None).await.unwrap();
         match result {
             DataObject::Unsigned16(max_len) => assert_eq!(max_len, 255),
             _ => panic!("Expected Unsigned16"),
@@ -449,12 +455,12 @@ mod tests {
     async fn test_string_set_attributes() {
         let s = StringInterface::with_default_obis();
 
-        s.set_attribute(2, DataObject::OctetString(b"Hello".to_vec()), None)
+        s.set_attribute(2, DataObject::OctetString(b"Hello".to_vec()), None, None)
             .await
             .unwrap();
         assert_eq!(s.value().await, "Hello");
 
-        s.set_attribute(3, DataObject::Unsigned16(512), None)
+        s.set_attribute(3, DataObject::Unsigned16(512), None, None)
             .await
             .unwrap();
         assert_eq!(s.max_length().await, 512);
@@ -463,7 +469,7 @@ mod tests {
     #[tokio::test]
     async fn test_string_set_max_length_u8() {
         let s = StringInterface::with_default_obis();
-        s.set_attribute(3, DataObject::Unsigned8(200), None)
+        s.set_attribute(3, DataObject::Unsigned8(200), None, None)
             .await
             .unwrap();
         assert_eq!(s.max_length().await, 200);
@@ -480,7 +486,7 @@ mod tests {
     async fn test_string_read_only_logical_name() {
         let s = StringInterface::with_default_obis();
         let result = s
-            .set_attribute(1, DataObject::OctetString(vec![0, 0, 90, 0, 0, 1]), None)
+            .set_attribute(1, DataObject::OctetString(vec![0, 0, 90, 0, 0, 1]), None, None)
             .await;
         assert!(result.is_err());
     }
@@ -488,14 +494,14 @@ mod tests {
     #[tokio::test]
     async fn test_string_invalid_attribute() {
         let s = StringInterface::with_default_obis();
-        let result = s.get_attribute(99, None).await;
+        let result = s.get_attribute(99, None, None).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_string_invalid_method() {
         let s = StringInterface::with_default_obis();
-        let result = s.invoke_method(1, None, None).await;
+        let result = s.invoke_method(1, None, None, None).await;
         assert!(result.is_err());
     }
 

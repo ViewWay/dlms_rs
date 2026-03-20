@@ -208,7 +208,9 @@ impl CosemObject for DataStore {
         &self,
         attribute_id: u8,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<DataObject> {
+        crate::enforce_attribute_read(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Ok(DataObject::OctetString(self.logical_name.to_bytes().to_vec()))
@@ -234,7 +236,9 @@ impl CosemObject for DataStore {
         attribute_id: u8,
         value: DataObject,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<()> {
+        crate::enforce_attribute_write(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Err(DlmsError::AccessDenied(
@@ -286,7 +290,9 @@ impl CosemObject for DataStore {
         method_id: u8,
         _parameters: Option<DataObject>,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<Option<DataObject>> {
+        crate::enforce_method_execute(ctx, self.class_id(), self.obis_code(), method_id).await?;
         Err(DlmsError::InvalidData(format!(
             "DataStore has no method {}",
             method_id
@@ -405,14 +411,14 @@ mod tests {
         let store = DataStore::with_default_obis();
 
         // Test data_size
-        let result = store.get_attribute(3, None).await.unwrap();
+        let result = store.get_attribute(3, None, None).await.unwrap();
         match result {
             DataObject::Unsigned32(size) => assert_eq!(size, 4096),
             _ => panic!("Expected Unsigned32"),
         }
 
         // Test data_type
-        let result = store.get_attribute(4, None).await.unwrap();
+        let result = store.get_attribute(4, None, None).await.unwrap();
         match result {
             DataObject::Enumerate(dt) => assert_eq!(dt, 0), // Binary
             _ => panic!("Expected Enumerate"),
@@ -423,17 +429,17 @@ mod tests {
     async fn test_data_store_set_attributes() {
         let store = DataStore::with_default_obis();
 
-        store.set_attribute(2, DataObject::OctetString(vec![10, 20, 30]), None)
+        store.set_attribute(2, DataObject::OctetString(vec![10, 20, 30]), None, None)
             .await
             .unwrap();
         assert_eq!(store.data().await, vec![10, 20, 30]);
 
-        store.set_attribute(3, DataObject::Unsigned32(2048), None)
+        store.set_attribute(3, DataObject::Unsigned32(2048), None, None)
             .await
             .unwrap();
         assert_eq!(store.data_size().await, 2048);
 
-        store.set_attribute(4, DataObject::Enumerate(1), None) // Text
+        store.set_attribute(4, DataObject::Enumerate(1), None, None) // Text
             .await
             .unwrap();
         assert_eq!(store.data_type().await, DataStoreType::Text);
@@ -443,7 +449,7 @@ mod tests {
     async fn test_data_store_read_only_logical_name() {
         let store = DataStore::with_default_obis();
         let result = store
-            .set_attribute(1, DataObject::OctetString(vec![0, 0, 2, 0, 0, 1]), None)
+            .set_attribute(1, DataObject::OctetString(vec![0, 0, 2, 0, 0, 1]), None, None)
             .await;
         assert!(result.is_err());
     }
@@ -451,14 +457,14 @@ mod tests {
     #[tokio::test]
     async fn test_data_store_invalid_attribute() {
         let store = DataStore::with_default_obis();
-        let result = store.get_attribute(99, None).await;
+        let result = store.get_attribute(99, None, None).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_data_store_invalid_method() {
         let store = DataStore::with_default_obis();
-        let result = store.invoke_method(1, None, None).await;
+        let result = store.invoke_method(1, None, None, None).await;
         assert!(result.is_err());
     }
 
@@ -479,14 +485,14 @@ mod tests {
     #[tokio::test]
     async fn test_data_store_invalid_data_type_for_value() {
         let store = DataStore::with_default_obis();
-        let result = store.set_attribute(2, DataObject::Boolean(true), None).await;
+        let result = store.set_attribute(2, DataObject::Boolean(true), None, None).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_data_store_invalid_data_type_for_size() {
         let store = DataStore::with_default_obis();
-        let result = store.set_attribute(3, DataObject::Boolean(true), None).await;
+        let result = store.set_attribute(3, DataObject::Boolean(true), None, None).await;
         assert!(result.is_err());
     }
 

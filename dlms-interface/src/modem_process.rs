@@ -366,7 +366,9 @@ impl CosemObject for ModemProcess {
         &self,
         attribute_id: u8,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<DataObject> {
+        crate::enforce_attribute_read(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Ok(DataObject::OctetString(self.logical_name.to_bytes().to_vec()))
@@ -410,7 +412,9 @@ impl CosemObject for ModemProcess {
         attribute_id: u8,
         value: DataObject,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<()> {
+        crate::enforce_attribute_write(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Err(DlmsError::AccessDenied(
@@ -532,7 +536,9 @@ impl CosemObject for ModemProcess {
         method_id: u8,
         _parameters: Option<DataObject>,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<Option<DataObject>> {
+        crate::enforce_method_execute(ctx, self.class_id(), self.obis_code(), method_id).await?;
         Err(DlmsError::InvalidData(format!(
             "ModemProcess has no method {}",
             method_id
@@ -749,21 +755,21 @@ mod tests {
         let modem = ModemProcess::with_default_obis();
 
         // Test modem_enabled
-        let result = modem.get_attribute(2, None).await.unwrap();
+        let result = modem.get_attribute(2, None, None).await.unwrap();
         match result {
             DataObject::Boolean(enabled) => assert!(!enabled),
             _ => panic!("Expected Boolean"),
         }
 
         // Test modem_status
-        let result = modem.get_attribute(3, None).await.unwrap();
+        let result = modem.get_attribute(3, None, None).await.unwrap();
         match result {
             DataObject::Enumerate(status) => assert_eq!(status, 6), // Disabled
             _ => panic!("Expected Enumerate"),
         }
 
         // Test baud_rate
-        let result = modem.get_attribute(5, None).await.unwrap();
+        let result = modem.get_attribute(5, None, None).await.unwrap();
         match result {
             DataObject::Unsigned32(rate) => assert_eq!(rate, 115200),
             _ => panic!("Expected Unsigned32"),
@@ -774,17 +780,17 @@ mod tests {
     async fn test_modem_process_set_attributes() {
         let modem = ModemProcess::with_default_obis();
 
-        modem.set_attribute(2, DataObject::Boolean(true), None)
+        modem.set_attribute(2, DataObject::Boolean(true), None, None)
             .await
             .unwrap();
         assert!(modem.modem_enabled().await);
 
-        modem.set_attribute(5, DataObject::Unsigned32(57600), None)
+        modem.set_attribute(5, DataObject::Unsigned32(57600), None, None)
             .await
             .unwrap();
         assert_eq!(modem.baud_rate().await, 57600);
 
-        modem.set_attribute(5, DataObject::Unsigned16(9600), None)
+        modem.set_attribute(5, DataObject::Unsigned16(9600), None, None)
             .await
             .unwrap();
         assert_eq!(modem.baud_rate().await, 9600);
@@ -794,7 +800,7 @@ mod tests {
     async fn test_modem_process_read_only_logical_name() {
         let modem = ModemProcess::with_default_obis();
         let result = modem
-            .set_attribute(1, DataObject::OctetString(vec![0, 0, 30, 0, 0, 1]), None)
+            .set_attribute(1, DataObject::OctetString(vec![0, 0, 30, 0, 0, 1]), None, None)
             .await;
         assert!(result.is_err());
     }
@@ -802,21 +808,21 @@ mod tests {
     #[tokio::test]
     async fn test_modem_process_invalid_attribute() {
         let modem = ModemProcess::with_default_obis();
-        let result = modem.get_attribute(99, None).await;
+        let result = modem.get_attribute(99, None, None).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_modem_process_invalid_method() {
         let modem = ModemProcess::with_default_obis();
-        let result = modem.invoke_method(1, None, None).await;
+        let result = modem.invoke_method(1, None, None, None).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_modem_process_invalid_data_type() {
         let modem = ModemProcess::with_default_obis();
-        let result = modem.set_attribute(2, DataObject::Unsigned8(1), None).await;
+        let result = modem.set_attribute(2, DataObject::Unsigned8(1), None, None).await;
         assert!(result.is_err());
     }
 

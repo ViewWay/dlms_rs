@@ -206,7 +206,9 @@ impl CosemObject for MacAddressSetup {
         &self,
         attribute_id: u8,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<DataObject> {
+        crate::enforce_attribute_read(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Ok(DataObject::OctetString(self.logical_name.to_bytes().to_vec()))
@@ -229,7 +231,9 @@ impl CosemObject for MacAddressSetup {
         attribute_id: u8,
         value: DataObject,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<()> {
+        crate::enforce_attribute_write(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Err(DlmsError::AccessDenied(
@@ -270,7 +274,9 @@ impl CosemObject for MacAddressSetup {
         method_id: u8,
         _parameters: Option<DataObject>,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<Option<DataObject>> {
+        crate::enforce_method_execute(ctx, self.class_id(), self.obis_code(), method_id).await?;
         Err(DlmsError::InvalidData(format!(
             "MacAddressSetup has no method {}",
             method_id
@@ -399,14 +405,14 @@ mod tests {
         let setup = MacAddressSetup::with_default_obis();
 
         // Test mac_enabled
-        let result = setup.get_attribute(3, None).await.unwrap();
+        let result = setup.get_attribute(3, None, None).await.unwrap();
         match result {
             DataObject::Boolean(enabled) => assert!(enabled),
             _ => panic!("Expected Boolean"),
         }
 
         // Test mac_address
-        let result = setup.get_attribute(2, None).await.unwrap();
+        let result = setup.get_attribute(2, None, None).await.unwrap();
         match result {
             DataObject::OctetString(bytes) => assert_eq!(bytes.len(), 6),
             _ => panic!("Expected OctetString"),
@@ -417,12 +423,12 @@ mod tests {
     async fn test_mac_address_setup_set_attributes() {
         let setup = MacAddressSetup::with_default_obis();
 
-        setup.set_attribute(2, DataObject::OctetString(vec![0x01, 0x02, 0x03, 0x04, 0x05, 0x06]), None)
+        setup.set_attribute(2, DataObject::OctetString(vec![0x01, 0x02, 0x03, 0x04, 0x05, 0x06]), None, None)
             .await
             .unwrap();
         assert_eq!(setup.mac_address().await.octets, [0x01, 0x02, 0x03, 0x04, 0x05, 0x06]);
 
-        setup.set_attribute(3, DataObject::Boolean(false), None)
+        setup.set_attribute(3, DataObject::Boolean(false), None, None)
             .await
             .unwrap();
         assert!(!setup.mac_enabled().await);
@@ -431,7 +437,7 @@ mod tests {
     #[tokio::test]
     async fn test_mac_address_setup_invalid_mac_bytes() {
         let setup = MacAddressSetup::with_default_obis();
-        let result = setup.set_attribute(2, DataObject::OctetString(vec![1, 2, 3]), None).await;
+        let result = setup.set_attribute(2, DataObject::OctetString(vec![1, 2, 3]), None, None).await;
         assert!(result.is_err());
     }
 
@@ -439,7 +445,7 @@ mod tests {
     async fn test_mac_address_setup_read_only_logical_name() {
         let setup = MacAddressSetup::with_default_obis();
         let result = setup
-            .set_attribute(1, DataObject::OctetString(vec![0, 0, 67, 0, 0, 1]), None)
+            .set_attribute(1, DataObject::OctetString(vec![0, 0, 67, 0, 0, 1]), None, None)
             .await;
         assert!(result.is_err());
     }
@@ -447,21 +453,21 @@ mod tests {
     #[tokio::test]
     async fn test_mac_address_setup_invalid_attribute() {
         let setup = MacAddressSetup::with_default_obis();
-        let result = setup.get_attribute(99, None).await;
+        let result = setup.get_attribute(99, None, None).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_mac_address_setup_invalid_method() {
         let setup = MacAddressSetup::with_default_obis();
-        let result = setup.invoke_method(1, None, None).await;
+        let result = setup.invoke_method(1, None, None, None).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_mac_address_setup_invalid_data_type() {
         let setup = MacAddressSetup::with_default_obis();
-        let result = setup.set_attribute(3, DataObject::Unsigned8(1), None).await;
+        let result = setup.set_attribute(3, DataObject::Unsigned8(1), None, None).await;
         assert!(result.is_err());
     }
 

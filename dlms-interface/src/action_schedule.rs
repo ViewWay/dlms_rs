@@ -267,7 +267,9 @@ impl CosemObject for ActionSchedule {
         &self,
         attribute_id: u8,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<DataObject> {
+        crate::enforce_attribute_read(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Ok(DataObject::OctetString(self.logical_name.to_bytes().to_vec()))
@@ -305,7 +307,9 @@ impl CosemObject for ActionSchedule {
         attribute_id: u8,
         value: DataObject,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<()> {
+        crate::enforce_attribute_write(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Err(DlmsError::AccessDenied(
@@ -371,7 +375,9 @@ impl CosemObject for ActionSchedule {
         method_id: u8,
         _parameters: Option<DataObject>,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<Option<DataObject>> {
+        crate::enforce_method_execute(ctx, self.class_id(), self.obis_code(), method_id).await?;
         Err(DlmsError::InvalidData(format!(
             "ActionSchedule has no method {}",
             method_id
@@ -586,14 +592,14 @@ mod tests {
         let schedule = ActionSchedule::with_default_obis();
 
         // Test enabled
-        let result = schedule.get_attribute(2, None).await.unwrap();
+        let result = schedule.get_attribute(2, None, None).await.unwrap();
         match result {
             DataObject::Boolean(enabled) => assert!(!enabled),
             _ => panic!("Expected Boolean"),
         }
 
         // Test action_script
-        let result = schedule.get_attribute(4, None).await.unwrap();
+        let result = schedule.get_attribute(4, None, None).await.unwrap();
         match result {
             DataObject::Unsigned8(script) => assert_eq!(script, 0),
             _ => panic!("Expected Unsigned8"),
@@ -604,12 +610,12 @@ mod tests {
     async fn test_action_schedule_set_attributes() {
         let schedule = ActionSchedule::with_default_obis();
 
-        schedule.set_attribute(2, DataObject::Boolean(true), None)
+        schedule.set_attribute(2, DataObject::Boolean(true), None, None)
             .await
             .unwrap();
         assert!(schedule.enabled().await);
 
-        schedule.set_attribute(4, DataObject::Unsigned8(123), None)
+        schedule.set_attribute(4, DataObject::Unsigned8(123), None, None)
             .await
             .unwrap();
         assert_eq!(schedule.action_script().await, 123);
@@ -618,7 +624,7 @@ mod tests {
     #[tokio::test]
     async fn test_action_schedule_set_execution_time_attribute() {
         let schedule = ActionSchedule::with_default_obis();
-        schedule.set_attribute(3, DataObject::Integer32(1234567890), None)
+        schedule.set_attribute(3, DataObject::Integer32(1234567890), None, None)
             .await
             .unwrap();
         assert_eq!(schedule.execution_time().await, Some(1234567890));
@@ -628,7 +634,7 @@ mod tests {
     async fn test_action_schedule_set_execution_time_null() {
         let schedule = ActionSchedule::with_default_obis();
         schedule.set_execution_time(Some(1234567890)).await;
-        schedule.set_attribute(3, DataObject::Null, None)
+        schedule.set_attribute(3, DataObject::Null, None, None)
             .await
             .unwrap();
         assert_eq!(schedule.execution_time().await, None);
@@ -638,7 +644,7 @@ mod tests {
     async fn test_action_schedule_read_only_logical_name() {
         let schedule = ActionSchedule::with_default_obis();
         let result = schedule
-            .set_attribute(1, DataObject::OctetString(vec![0, 0, 95, 0, 0, 1]), None)
+            .set_attribute(1, DataObject::OctetString(vec![0, 0, 95, 0, 0, 1]), None, None)
             .await;
         assert!(result.is_err());
     }
@@ -647,7 +653,7 @@ mod tests {
     async fn test_action_schedule_read_only_last_execution_time() {
         let schedule = ActionSchedule::with_default_obis();
         let result = schedule
-            .set_attribute(5, DataObject::Integer32(1234567890), None)
+            .set_attribute(5, DataObject::Integer32(1234567890), None, None)
             .await;
         assert!(result.is_err());
     }
@@ -656,7 +662,7 @@ mod tests {
     async fn test_action_schedule_read_only_execution_count() {
         let schedule = ActionSchedule::with_default_obis();
         let result = schedule
-            .set_attribute(6, DataObject::Unsigned32(100), None)
+            .set_attribute(6, DataObject::Unsigned32(100), None, None)
             .await;
         assert!(result.is_err());
     }
@@ -664,14 +670,14 @@ mod tests {
     #[tokio::test]
     async fn test_action_schedule_invalid_attribute() {
         let schedule = ActionSchedule::with_default_obis();
-        let result = schedule.get_attribute(99, None).await;
+        let result = schedule.get_attribute(99, None, None).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_action_schedule_invalid_method() {
         let schedule = ActionSchedule::with_default_obis();
-        let result = schedule.invoke_method(1, None, None).await;
+        let result = schedule.invoke_method(1, None, None, None).await;
         assert!(result.is_err());
     }
 

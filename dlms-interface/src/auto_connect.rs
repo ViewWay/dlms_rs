@@ -338,7 +338,9 @@ impl CosemObject for AutoConnect {
         &self,
         attribute_id: u8,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<DataObject> {
+        crate::enforce_attribute_read(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Ok(DataObject::OctetString(self.logical_name.to_bytes().to_vec()))
@@ -378,7 +380,9 @@ impl CosemObject for AutoConnect {
         attribute_id: u8,
         value: DataObject,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<()> {
+        crate::enforce_attribute_write(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Err(DlmsError::AccessDenied(
@@ -473,7 +477,9 @@ impl CosemObject for AutoConnect {
         method_id: u8,
         _parameters: Option<DataObject>,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<Option<DataObject>> {
+        crate::enforce_method_execute(ctx, self.class_id(), self.obis_code(), method_id).await?;
         Err(DlmsError::InvalidData(format!(
             "Auto Connect has no method {}",
             method_id
@@ -626,14 +632,14 @@ mod tests {
         let ac = AutoConnect::with_default_obis();
 
         // Test mode
-        let result = ac.get_attribute(2, None).await.unwrap();
+        let result = ac.get_attribute(2, None, None).await.unwrap();
         match result {
             DataObject::Enumerate(mode) => assert_eq!(mode, 0), // Disabled
             _ => panic!("Expected Enumerate"),
         }
 
         // Test repetition_delay
-        let result = ac.get_attribute(3, None).await.unwrap();
+        let result = ac.get_attribute(3, None, None).await.unwrap();
         match result {
             DataObject::Unsigned32(delay) => assert_eq!(delay, 60),
             _ => panic!("Expected Unsigned32"),
@@ -644,12 +650,12 @@ mod tests {
     async fn test_auto_connect_set_attributes() {
         let ac = AutoConnect::with_default_obis();
 
-        ac.set_attribute(2, DataObject::Enumerate(1), None)
+        ac.set_attribute(2, DataObject::Enumerate(1), None, None)
             .await
             .unwrap();
         assert_eq!(ac.mode().await, AutoConnectMode::Always);
 
-        ac.set_attribute(6, DataObject::OctetString(b"test.com".to_vec()), None)
+        ac.set_attribute(6, DataObject::OctetString(b"test.com".to_vec()), None, None)
             .await
             .unwrap();
         assert_eq!(ac.destination().await, "test.com");
@@ -659,7 +665,7 @@ mod tests {
     async fn test_auto_connect_read_only_logical_name() {
         let ac = AutoConnect::with_default_obis();
         let result = ac
-            .set_attribute(1, DataObject::OctetString(vec![0, 0, 45, 0, 0, 1]), None)
+            .set_attribute(1, DataObject::OctetString(vec![0, 0, 45, 0, 0, 1]), None, None)
             .await;
         assert!(result.is_err());
     }
@@ -667,14 +673,14 @@ mod tests {
     #[tokio::test]
     async fn test_auto_connect_invalid_attribute() {
         let ac = AutoConnect::with_default_obis();
-        let result = ac.get_attribute(99, None).await;
+        let result = ac.get_attribute(99, None, None).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_auto_connect_invalid_method() {
         let ac = AutoConnect::with_default_obis();
-        let result = ac.invoke_method(1, None, None).await;
+        let result = ac.invoke_method(1, None, None, None).await;
         assert!(result.is_err());
     }
 }

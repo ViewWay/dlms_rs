@@ -228,7 +228,9 @@ impl CosemObject for DisconnectControl {
         &self,
         attribute_id: u8,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<DataObject> {
+        crate::enforce_attribute_read(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Ok(DataObject::OctetString(self.logical_name.to_bytes().to_vec()))
@@ -248,7 +250,9 @@ impl CosemObject for DisconnectControl {
         attribute_id: u8,
         value: DataObject,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<()> {
+        crate::enforce_attribute_write(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Err(DlmsError::AccessDenied(
@@ -289,7 +293,9 @@ impl CosemObject for DisconnectControl {
         method_id: u8,
         _parameters: Option<DataObject>,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<Option<DataObject>> {
+        crate::enforce_method_execute(ctx, self.class_id(), self.obis_code(), method_id).await?;
         match method_id {
             Self::METHOD_REMOTE_DISCONNECT => {
                 self.remote_disconnect().await?;
@@ -404,7 +410,7 @@ mod tests {
     #[tokio::test]
     async fn test_disconnect_control_get_logical_name() {
         let control = DisconnectControl::with_default_obis();
-        let result = control.get_attribute(1, None).await.unwrap();
+        let result = control.get_attribute(1, None, None).await.unwrap();
 
         match result {
             DataObject::OctetString(bytes) => {
@@ -417,11 +423,11 @@ mod tests {
     #[tokio::test]
     async fn test_disconnect_control_get_output_state() {
         let control = DisconnectControl::with_default_obis();
-        let result = control.get_attribute(2, None).await.unwrap();
+        let result = control.get_attribute(2, None, None).await.unwrap();
         assert_eq!(result, DataObject::Enumerate(1)); // Connected = 1
 
         control.set_output_state(OutputState::Disconnected).await;
-        let result = control.get_attribute(2, None).await.unwrap();
+        let result = control.get_attribute(2, None, None).await.unwrap();
         assert_eq!(result, DataObject::Enumerate(0)); // Disconnected = 0
     }
 
@@ -429,7 +435,7 @@ mod tests {
     async fn test_disconnect_control_set_output_state_via_attribute() {
         let control = DisconnectControl::with_default_obis();
         control
-            .set_attribute(2, DataObject::Enumerate(0), None)
+            .set_attribute(2, DataObject::Enumerate(0), None, None)
             .await
             .unwrap();
         assert_eq!(control.output_state().await, OutputState::Disconnected);
@@ -439,7 +445,7 @@ mod tests {
     async fn test_disconnect_control_set_output_state_boolean() {
         let control = DisconnectControl::with_default_obis();
         control
-            .set_attribute(2, DataObject::Boolean(false), None)
+            .set_attribute(2, DataObject::Boolean(false), None, None)
             .await
             .unwrap();
         assert!(!control.is_connected().await);
@@ -449,7 +455,7 @@ mod tests {
     async fn test_disconnect_control_read_only_logical_name() {
         let control = DisconnectControl::with_default_obis();
         let result = control
-            .set_attribute(1, DataObject::OctetString(vec![0, 0, 96, 1, 0, 1]), None)
+            .set_attribute(1, DataObject::OctetString(vec![0, 0, 96, 1, 0, 1]), None, None)
             .await;
         assert!(result.is_err());
     }
@@ -457,7 +463,7 @@ mod tests {
     #[tokio::test]
     async fn test_disconnect_control_method_disconnect() {
         let control = DisconnectControl::with_default_obis();
-        let result = control.invoke_method(1, None, None).await;
+        let result = control.invoke_method(1, None, None, None).await;
         assert!(result.is_ok());
         assert!(!control.is_connected().await);
     }
@@ -468,7 +474,7 @@ mod tests {
             DisconnectControl::default_obis(),
             OutputState::Disconnected,
         );
-        let result = control.invoke_method(2, None, None).await;
+        let result = control.invoke_method(2, None, None, None).await;
         assert!(result.is_ok());
         assert!(control.is_connected().await);
     }
@@ -476,14 +482,14 @@ mod tests {
     #[tokio::test]
     async fn test_disconnect_control_invalid_method() {
         let control = DisconnectControl::with_default_obis();
-        let result = control.invoke_method(99, None, None).await;
+        let result = control.invoke_method(99, None, None, None).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_disconnect_control_invalid_attribute() {
         let control = DisconnectControl::with_default_obis();
-        let result = control.get_attribute(99, None).await;
+        let result = control.get_attribute(99, None, None).await;
         assert!(result.is_err());
     }
 

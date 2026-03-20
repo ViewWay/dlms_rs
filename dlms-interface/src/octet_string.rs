@@ -194,7 +194,9 @@ impl CosemObject for OctetString {
         &self,
         attribute_id: u8,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<DataObject> {
+        crate::enforce_attribute_read(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Ok(DataObject::OctetString(self.logical_name.to_bytes().to_vec()))
@@ -217,7 +219,9 @@ impl CosemObject for OctetString {
         attribute_id: u8,
         value: DataObject,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<()> {
+        crate::enforce_attribute_write(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Err(DlmsError::AccessDenied(
@@ -262,7 +266,9 @@ impl CosemObject for OctetString {
         method_id: u8,
         _parameters: Option<DataObject>,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<Option<DataObject>> {
+        crate::enforce_method_execute(ctx, self.class_id(), self.obis_code(), method_id).await?;
         Err(DlmsError::InvalidData(format!(
             "OctetString has no method {}",
             method_id
@@ -401,14 +407,14 @@ mod tests {
         let os = OctetString::with_max_length(ObisCode::new(0, 0, 89, 0, 0, 255), 512);
 
         // Test value
-        let result = os.get_attribute(2, None).await.unwrap();
+        let result = os.get_attribute(2, None, None).await.unwrap();
         match result {
             DataObject::OctetString(bytes) => assert!(bytes.is_empty()),
             _ => panic!("Expected OctetString"),
         }
 
         // Test max_length
-        let result = os.get_attribute(3, None).await.unwrap();
+        let result = os.get_attribute(3, None, None).await.unwrap();
         match result {
             DataObject::Unsigned16(max_len) => assert_eq!(max_len, 512),
             _ => panic!("Expected Unsigned16"),
@@ -419,12 +425,12 @@ mod tests {
     async fn test_octet_string_set_attributes() {
         let os = OctetString::with_default_obis();
 
-        os.set_attribute(2, DataObject::OctetString(vec![10, 20, 30]), None)
+        os.set_attribute(2, DataObject::OctetString(vec![10, 20, 30]), None, None)
             .await
             .unwrap();
         assert_eq!(os.value().await, vec![10, 20, 30]);
 
-        os.set_attribute(3, DataObject::Unsigned16(512), None)
+        os.set_attribute(3, DataObject::Unsigned16(512), None, None)
             .await
             .unwrap();
         assert_eq!(os.max_length().await, 512);
@@ -433,7 +439,7 @@ mod tests {
     #[tokio::test]
     async fn test_octet_string_set_max_length_u8() {
         let os = OctetString::with_default_obis();
-        os.set_attribute(3, DataObject::Unsigned8(200), None)
+        os.set_attribute(3, DataObject::Unsigned8(200), None, None)
             .await
             .unwrap();
         assert_eq!(os.max_length().await, 200);
@@ -443,7 +449,7 @@ mod tests {
     async fn test_octet_string_read_only_logical_name() {
         let os = OctetString::with_default_obis();
         let result = os
-            .set_attribute(1, DataObject::OctetString(vec![0, 0, 89, 0, 0, 1]), None)
+            .set_attribute(1, DataObject::OctetString(vec![0, 0, 89, 0, 0, 1]), None, None)
             .await;
         assert!(result.is_err());
     }
@@ -451,14 +457,14 @@ mod tests {
     #[tokio::test]
     async fn test_octet_string_invalid_attribute() {
         let os = OctetString::with_default_obis();
-        let result = os.get_attribute(99, None).await;
+        let result = os.get_attribute(99, None, None).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_octet_string_invalid_method() {
         let os = OctetString::with_default_obis();
-        let result = os.invoke_method(1, None, None).await;
+        let result = os.invoke_method(1, None, None, None).await;
         assert!(result.is_err());
     }
 

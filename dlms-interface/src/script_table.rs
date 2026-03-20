@@ -273,7 +273,9 @@ impl CosemObject for ScriptTable {
         &self,
         attribute_id: u8,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<DataObject> {
+        crate::enforce_attribute_read(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Ok(DataObject::OctetString(self.logical_name.to_bytes().to_vec()))
@@ -296,7 +298,9 @@ impl CosemObject for ScriptTable {
         attribute_id: u8,
         value: DataObject,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<()> {
+        crate::enforce_attribute_write(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Err(DlmsError::AccessDenied(
@@ -359,7 +363,9 @@ impl CosemObject for ScriptTable {
         method_id: u8,
         parameters: Option<DataObject>,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<Option<DataObject>> {
+        crate::enforce_method_execute(ctx, self.class_id(), self.obis_code(), method_id).await?;
         match method_id {
             Self::METHOD_SCRIPT_EXECUTE => {
                 if let Some(DataObject::Unsigned8(script_id)) = parameters {
@@ -400,7 +406,7 @@ mod tests {
         let table = ScriptTable::with_default_obis();
         assert_eq!(table.script_count().await, 0);
 
-        let result = table.get_attribute(2, None).await.unwrap();
+        let result = table.get_attribute(2, None, None).await.unwrap();
         assert_eq!(result, DataObject::Unsigned8(0));
     }
 
@@ -474,21 +480,21 @@ mod tests {
         let script = ScriptDescriptor::new(5, vec![ScriptAction::simple(1)]);
 
         table.add_script(script).await.unwrap();
-        let result = table.invoke_method(1, Some(DataObject::Unsigned8(5)), None).await.unwrap();
+        let result = table.invoke_method(1, Some(DataObject::Unsigned8(5)), None, None).await.unwrap();
         assert!(result.is_some());
     }
 
     #[tokio::test]
     async fn test_script_table_method_invalid_params() {
         let table = ScriptTable::with_default_obis();
-        let result = table.invoke_method(1, Some(DataObject::Integer64(123)), None).await;
+        let result = table.invoke_method(1, Some(DataObject::Integer64(123)), None, None).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_script_table_get_logical_name() {
         let table = ScriptTable::with_default_obis();
-        let result = table.get_attribute(1, None).await.unwrap();
+        let result = table.get_attribute(1, None, None).await.unwrap();
 
         match result {
             DataObject::OctetString(bytes) => {
@@ -501,14 +507,14 @@ mod tests {
     #[tokio::test]
     async fn test_script_table_read_only_count() {
         let table = ScriptTable::with_default_obis();
-        let result = table.set_attribute(2, DataObject::Unsigned8(5), None).await;
+        let result = table.set_attribute(2, DataObject::Unsigned8(5), None, None).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_script_table_read_only_logical_name() {
         let table = ScriptTable::with_default_obis();
-        let result = table.set_attribute(1, DataObject::OctetString(vec![0, 0, 10, 0, 0, 1]), None).await;
+        let result = table.set_attribute(1, DataObject::OctetString(vec![0, 0, 10, 0, 0, 1]), None, None).await;
         assert!(result.is_err());
     }
 
@@ -552,14 +558,14 @@ mod tests {
     #[tokio::test]
     async fn test_script_table_invalid_attribute() {
         let table = ScriptTable::with_default_obis();
-        let result = table.get_attribute(99, None).await;
+        let result = table.get_attribute(99, None, None).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_script_table_invalid_method() {
         let table = ScriptTable::with_default_obis();
-        let result = table.invoke_method(99, None, None).await;
+        let result = table.invoke_method(99, None, None, None).await;
         assert!(result.is_err());
     }
 }

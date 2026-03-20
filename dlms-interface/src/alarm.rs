@@ -347,7 +347,9 @@ impl CosemObject for Alarm {
         &self,
         attribute_id: u8,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<DataObject> {
+        crate::enforce_attribute_read(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Ok(DataObject::OctetString(self.logical_name.to_bytes().to_vec()))
@@ -388,7 +390,9 @@ impl CosemObject for Alarm {
         attribute_id: u8,
         value: DataObject,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<()> {
+        crate::enforce_attribute_write(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Err(DlmsError::AccessDenied(
@@ -488,7 +492,9 @@ impl CosemObject for Alarm {
         method_id: u8,
         _parameters: Option<DataObject>,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<Option<DataObject>> {
+        crate::enforce_method_execute(ctx, self.class_id(), self.obis_code(), method_id).await?;
         Err(DlmsError::InvalidData(format!(
             "Alarm has no method {}",
             method_id
@@ -677,14 +683,14 @@ mod tests {
         let alarm = Alarm::with_default_obis();
 
         // Test alarm_type
-        let result = alarm.get_attribute(2, None).await.unwrap();
+        let result = alarm.get_attribute(2, None, None).await.unwrap();
         match result {
             DataObject::Enumerate(at) => assert_eq!(at, 0), // None
             _ => panic!("Expected Enumerate"),
         }
 
         // Test alarm_status
-        let result = alarm.get_attribute(3, None).await.unwrap();
+        let result = alarm.get_attribute(3, None, None).await.unwrap();
         match result {
             DataObject::Enumerate(st) => assert_eq!(st, 0), // Inactive
             _ => panic!("Expected Enumerate"),
@@ -695,12 +701,12 @@ mod tests {
     async fn test_alarm_set_attributes() {
         let alarm = Alarm::with_default_obis();
 
-        alarm.set_attribute(2, DataObject::Enumerate(2), None) // LowBattery
+        alarm.set_attribute(2, DataObject::Enumerate(2), None, None) // LowBattery
             .await
             .unwrap();
         assert_eq!(alarm.alarm_type().await, AlarmType::LowBattery);
 
-        alarm.set_attribute(4, DataObject::Integer64(75), None)
+        alarm.set_attribute(4, DataObject::Integer64(75), None, None)
             .await
             .unwrap();
         assert_eq!(alarm.alarm_value().await, 75);
@@ -710,7 +716,7 @@ mod tests {
     async fn test_alarm_read_only_logical_name() {
         let alarm = Alarm::with_default_obis();
         let result = alarm
-            .set_attribute(1, DataObject::OctetString(vec![0, 0, 73, 0, 0, 1]), None)
+            .set_attribute(1, DataObject::OctetString(vec![0, 0, 73, 0, 0, 1]), None, None)
             .await;
         assert!(result.is_err());
     }
@@ -718,14 +724,14 @@ mod tests {
     #[tokio::test]
     async fn test_alarm_invalid_attribute() {
         let alarm = Alarm::with_default_obis();
-        let result = alarm.get_attribute(99, None).await;
+        let result = alarm.get_attribute(99, None, None).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_alarm_invalid_method() {
         let alarm = Alarm::with_default_obis();
-        let result = alarm.invoke_method(1, None, None).await;
+        let result = alarm.invoke_method(1, None, None, None).await;
         assert!(result.is_err());
     }
 }

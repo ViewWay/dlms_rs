@@ -224,7 +224,9 @@ impl CosemObject for StatusMapping {
         &self,
         attribute_id: u8,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<DataObject> {
+        crate::enforce_attribute_read(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Ok(DataObject::OctetString(self.logical_name.to_bytes().to_vec()))
@@ -247,7 +249,9 @@ impl CosemObject for StatusMapping {
         attribute_id: u8,
         value: DataObject,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<()> {
+        crate::enforce_attribute_write(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Err(DlmsError::AccessDenied(
@@ -310,7 +314,9 @@ impl CosemObject for StatusMapping {
         method_id: u8,
         _parameters: Option<DataObject>,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<Option<DataObject>> {
+        crate::enforce_method_execute(ctx, self.class_id(), self.obis_code(), method_id).await?;
         Err(DlmsError::InvalidData(format!(
             "StatusMapping has no method {}",
             method_id
@@ -485,14 +491,14 @@ mod tests {
         let mapping = StatusMapping::with_default_obis();
 
         // Test mapping_enabled
-        let result = mapping.get_attribute(2, None).await.unwrap();
+        let result = mapping.get_attribute(2, None, None).await.unwrap();
         match result {
             DataObject::Boolean(enabled) => assert!(enabled),
             _ => panic!("Expected Boolean"),
         }
 
         // Test mapping_table (should be empty array)
-        let result = mapping.get_attribute(3, None).await.unwrap();
+        let result = mapping.get_attribute(3, None, None).await.unwrap();
         match result {
             DataObject::Array(entries) => assert!(entries.is_empty()),
             _ => panic!("Expected Array"),
@@ -503,7 +509,7 @@ mod tests {
     async fn test_status_mapping_set_attributes() {
         let mapping = StatusMapping::with_default_obis();
 
-        mapping.set_attribute(2, DataObject::Boolean(false), None)
+        mapping.set_attribute(2, DataObject::Boolean(false), None, None)
             .await
             .unwrap();
         assert!(!mapping.mapping_enabled().await);
@@ -524,7 +530,7 @@ mod tests {
             ]),
         ]);
 
-        mapping.set_attribute(3, table, None).await.unwrap();
+        mapping.set_attribute(3, table, None, None).await.unwrap();
 
         assert_eq!(mapping.mapping_count().await, 2);
         assert_eq!(mapping.to_external(1).await, Some(10));
@@ -535,7 +541,7 @@ mod tests {
     async fn test_status_mapping_read_only_logical_name() {
         let mapping = StatusMapping::with_default_obis();
         let result = mapping
-            .set_attribute(1, DataObject::OctetString(vec![0, 0, 68, 0, 0, 1]), None)
+            .set_attribute(1, DataObject::OctetString(vec![0, 0, 68, 0, 0, 1]), None, None)
             .await;
         assert!(result.is_err());
     }
@@ -543,14 +549,14 @@ mod tests {
     #[tokio::test]
     async fn test_status_mapping_invalid_attribute() {
         let mapping = StatusMapping::with_default_obis();
-        let result = mapping.get_attribute(99, None).await;
+        let result = mapping.get_attribute(99, None, None).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_status_mapping_invalid_method() {
         let mapping = StatusMapping::with_default_obis();
-        let result = mapping.invoke_method(1, None, None).await;
+        let result = mapping.invoke_method(1, None, None, None).await;
         assert!(result.is_err());
     }
 

@@ -210,7 +210,9 @@ impl CosemObject for RegisterActivation {
         &self,
         attribute_id: u8,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<DataObject> {
+        crate::enforce_attribute_read(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Ok(DataObject::OctetString(self.logical_name.to_bytes().to_vec()))
@@ -251,7 +253,9 @@ impl CosemObject for RegisterActivation {
         attribute_id: u8,
         value: DataObject,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<()> {
+        crate::enforce_attribute_write(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Err(DlmsError::AccessDenied(
@@ -335,7 +339,9 @@ impl CosemObject for RegisterActivation {
         method_id: u8,
         parameters: Option<DataObject>,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<Option<DataObject>> {
+        crate::enforce_method_execute(ctx, self.class_id(), self.obis_code(), method_id).await?;
         match method_id {
             Self::METHOD_ACTIVATE => {
                 // Activate method: expects a structure with value and timestamp
@@ -466,7 +472,7 @@ mod tests {
     #[tokio::test]
     async fn test_register_activation_get_logical_name() {
         let reg = RegisterActivation::with_default_obis(0);
-        let result = reg.get_attribute(1, None).await.unwrap();
+        let result = reg.get_attribute(1, None, None).await.unwrap();
 
         match result {
             DataObject::OctetString(bytes) => {
@@ -479,32 +485,32 @@ mod tests {
     #[tokio::test]
     async fn test_register_activation_get_value() {
         let reg = RegisterActivation::with_default_obis(123);
-        let result = reg.get_attribute(2, None).await.unwrap();
+        let result = reg.get_attribute(2, None, None).await.unwrap();
         assert_eq!(result, DataObject::Integer64(123));
     }
 
     #[tokio::test]
     async fn test_register_activation_get_status() {
         let reg = RegisterActivation::with_default_obis(0);
-        let result = reg.get_attribute(4, None).await.unwrap();
+        let result = reg.get_attribute(4, None, None).await.unwrap();
         assert_eq!(result, DataObject::Boolean(false));
 
         reg.set_status(true).await;
-        let result = reg.get_attribute(4, None).await.unwrap();
+        let result = reg.get_attribute(4, None, None).await.unwrap();
         assert_eq!(result, DataObject::Boolean(true));
     }
 
     #[tokio::test]
     async fn test_register_activation_set_value_via_attribute() {
         let reg = RegisterActivation::with_default_obis(0);
-        reg.set_attribute(2, DataObject::Integer64(456), None).await.unwrap();
+        reg.set_attribute(2, DataObject::Integer64(456), None, None).await.unwrap();
         assert_eq!(reg.value().await, 456);
     }
 
     #[tokio::test]
     async fn test_register_activation_read_only_logical_name() {
         let reg = RegisterActivation::with_default_obis(0);
-        let result = reg.set_attribute(1, DataObject::OctetString(vec![1, 0, 0, 0, 0, 1]), None).await;
+        let result = reg.set_attribute(1, DataObject::OctetString(vec![1, 0, 0, 0, 0, 1]), None, None).await;
         assert!(result.is_err());
     }
 
@@ -513,7 +519,7 @@ mod tests {
         let reg = RegisterActivation::with_default_obis(0);
         let timestamp = CosemDateTime::new(2024, 6, 15, 12, 0, 0, 0, &[]).unwrap();
 
-        reg.set_attribute(5, DataObject::OctetString(timestamp.encode()), None).await.unwrap();
+        reg.set_attribute(5, DataObject::OctetString(timestamp.encode()), None, None).await.unwrap();
         assert!(reg.activation_time().await.is_some());
     }
 
@@ -527,7 +533,7 @@ mod tests {
             DataObject::OctetString(timestamp.encode()),
         ]);
 
-        reg.invoke_method(1, Some(params), None).await.unwrap();
+        reg.invoke_method(1, Some(params), None, None).await.unwrap();
 
         assert_eq!(reg.value().await, 999);
         assert!(reg.is_active().await);
@@ -536,24 +542,24 @@ mod tests {
     #[tokio::test]
     async fn test_register_activation_invalid_method() {
         let reg = RegisterActivation::with_default_obis(0);
-        let result = reg.invoke_method(99, None, None).await;
+        let result = reg.invoke_method(99, None, None, None).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_register_activation_invalid_attribute() {
         let reg = RegisterActivation::with_default_obis(0);
-        let result = reg.get_attribute(99, None).await;
+        let result = reg.get_attribute(99, None, None).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_register_activation_scaler_unit() {
         let reg = RegisterActivation::with_default_obis(0);
-        assert_eq!(reg.get_attribute(3, None).await.unwrap(), DataObject::Null);
+        assert_eq!(reg.get_attribute(3, None, None).await.unwrap(), DataObject::Null);
 
         let scaler_unit = ScalerUnit::new(-1, 30); // kW
-        reg.set_attribute(3, scaler_unit.to_data_object(), None).await.unwrap();
+        reg.set_attribute(3, scaler_unit.to_data_object(), None, None).await.unwrap();
 
         let result = reg.scaler_unit().await;
         assert!(result.is_some());
@@ -562,7 +568,7 @@ mod tests {
     #[tokio::test]
     async fn test_register_activation_null_activation_time() {
         let reg = RegisterActivation::with_default_obis(0);
-        let result = reg.set_attribute(5, DataObject::Null, None).await;
+        let result = reg.set_attribute(5, DataObject::Null, None, None).await;
         assert!(result.is_ok());
         assert!(reg.activation_time().await.is_none());
     }

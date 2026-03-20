@@ -318,7 +318,9 @@ impl CosemObject for Ip6Setup {
         &self,
         attribute_id: u8,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<DataObject> {
+        crate::enforce_attribute_read(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Ok(DataObject::OctetString(self.logical_name.to_bytes().to_vec()))
@@ -356,7 +358,9 @@ impl CosemObject for Ip6Setup {
         attribute_id: u8,
         value: DataObject,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<()> {
+        crate::enforce_attribute_write(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Err(DlmsError::AccessDenied(
@@ -464,7 +468,9 @@ impl CosemObject for Ip6Setup {
         method_id: u8,
         _parameters: Option<DataObject>,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<Option<DataObject>> {
+        crate::enforce_method_execute(ctx, self.class_id(), self.obis_code(), method_id).await?;
         Err(DlmsError::InvalidData(format!(
             "Ip6Setup has no method {}",
             method_id
@@ -646,21 +652,21 @@ mod tests {
         let setup = Ip6Setup::with_default_obis();
 
         // Test address_method
-        let result = setup.get_attribute(2, None).await.unwrap();
+        let result = setup.get_attribute(2, None, None).await.unwrap();
         match result {
             DataObject::Enumerate(method) => assert_eq!(method, 2), // Slaac
             _ => panic!("Expected Enumerate"),
         }
 
         // Test prefix_length
-        let result = setup.get_attribute(4, None).await.unwrap();
+        let result = setup.get_attribute(4, None, None).await.unwrap();
         match result {
             DataObject::Unsigned8(length) => assert_eq!(length, 64),
             _ => panic!("Expected Unsigned8"),
         }
 
         // Test mtu_size
-        let result = setup.get_attribute(10, None).await.unwrap();
+        let result = setup.get_attribute(10, None, None).await.unwrap();
         match result {
             DataObject::Unsigned16(mtu) => assert_eq!(mtu, 1500),
             _ => panic!("Expected Unsigned16"),
@@ -671,12 +677,12 @@ mod tests {
     async fn test_ip6_setup_set_attributes() {
         let setup = Ip6Setup::with_default_obis();
 
-        setup.set_attribute(2, DataObject::Enumerate(0), None) // Static
+        setup.set_attribute(2, DataObject::Enumerate(0), None, None) // Static
             .await
             .unwrap();
         assert_eq!(setup.address_method().await, Ip6AddressMethod::Static);
 
-        setup.set_attribute(4, DataObject::Unsigned8(56), None)
+        setup.set_attribute(4, DataObject::Unsigned8(56), None, None)
             .await
             .unwrap();
         assert_eq!(setup.prefix_length().await, 56);
@@ -690,7 +696,7 @@ mod tests {
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
         ];
 
-        setup.set_attribute(3, DataObject::OctetString(bytes), None)
+        setup.set_attribute(3, DataObject::OctetString(bytes), None, None)
             .await
             .unwrap();
         assert!(setup.has_valid_ip().await);
@@ -699,7 +705,7 @@ mod tests {
     #[tokio::test]
     async fn test_ip6_setup_invalid_ip_bytes() {
         let setup = Ip6Setup::with_default_obis();
-        let result = setup.set_attribute(3, DataObject::OctetString(vec![1, 2, 3]), None).await;
+        let result = setup.set_attribute(3, DataObject::OctetString(vec![1, 2, 3]), None, None).await;
         assert!(result.is_err());
     }
 
@@ -707,7 +713,7 @@ mod tests {
     async fn test_ip6_setup_read_only_logical_name() {
         let setup = Ip6Setup::with_default_obis();
         let result = setup
-            .set_attribute(1, DataObject::OctetString(vec![0, 0, 66, 0, 0, 1]), None)
+            .set_attribute(1, DataObject::OctetString(vec![0, 0, 66, 0, 0, 1]), None, None)
             .await;
         assert!(result.is_err());
     }
@@ -715,14 +721,14 @@ mod tests {
     #[tokio::test]
     async fn test_ip6_setup_invalid_attribute() {
         let setup = Ip6Setup::with_default_obis();
-        let result = setup.get_attribute(99, None).await;
+        let result = setup.get_attribute(99, None, None).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_ip6_setup_invalid_method() {
         let setup = Ip6Setup::with_default_obis();
-        let result = setup.invoke_method(1, None, None).await;
+        let result = setup.invoke_method(1, None, None, None).await;
         assert!(result.is_err());
     }
 
@@ -735,7 +741,7 @@ mod tests {
     #[tokio::test]
     async fn test_ip6_setup_invalid_data_type_for_method() {
         let setup = Ip6Setup::with_default_obis();
-        let result = setup.set_attribute(2, DataObject::Boolean(true), None).await;
+        let result = setup.set_attribute(2, DataObject::Boolean(true), None, None).await;
         assert!(result.is_err());
     }
 }

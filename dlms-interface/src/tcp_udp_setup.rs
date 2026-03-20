@@ -271,7 +271,9 @@ impl CosemObject for TcpUdpSetup {
         &self,
         attribute_id: u8,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<DataObject> {
+        crate::enforce_attribute_read(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Ok(DataObject::OctetString(self.logical_name.to_bytes().to_vec()))
@@ -303,7 +305,9 @@ impl CosemObject for TcpUdpSetup {
         attribute_id: u8,
         value: DataObject,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<()> {
+        crate::enforce_attribute_write(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Err(DlmsError::AccessDenied(
@@ -385,7 +389,9 @@ impl CosemObject for TcpUdpSetup {
         method_id: u8,
         _parameters: Option<DataObject>,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<Option<DataObject>> {
+        crate::enforce_method_execute(ctx, self.class_id(), self.obis_code(), method_id).await?;
         Err(DlmsError::InvalidData(format!(
             "TcpUdpSetup has no method {}",
             method_id
@@ -550,14 +556,14 @@ mod tests {
         let setup = TcpUdpSetup::with_default_obis();
 
         // Test protocol_type
-        let result = setup.get_attribute(2, None).await.unwrap();
+        let result = setup.get_attribute(2, None, None).await.unwrap();
         match result {
             DataObject::Enumerate(protocol) => assert_eq!(protocol, 1), // TCP
             _ => panic!("Expected Enumerate"),
         }
 
         // Test port
-        let result = setup.get_attribute(3, None).await.unwrap();
+        let result = setup.get_attribute(3, None, None).await.unwrap();
         match result {
             DataObject::Unsigned16(port) => assert_eq!(port, 4059),
             _ => panic!("Expected Unsigned16"),
@@ -568,12 +574,12 @@ mod tests {
     async fn test_tcp_udp_setup_set_attributes() {
         let setup = TcpUdpSetup::with_default_obis();
 
-        setup.set_attribute(2, DataObject::Enumerate(0), None) // UDP
+        setup.set_attribute(2, DataObject::Enumerate(0), None, None) // UDP
             .await
             .unwrap();
         assert!(setup.is_udp().await);
 
-        setup.set_attribute(3, DataObject::Unsigned16(9000), None)
+        setup.set_attribute(3, DataObject::Unsigned16(9000), None, None)
             .await
             .unwrap();
         assert_eq!(setup.port().await, 9000);
@@ -582,7 +588,7 @@ mod tests {
     #[tokio::test]
     async fn test_tcp_udp_setup_set_ip_attribute() {
         let setup = TcpUdpSetup::with_default_obis();
-        setup.set_attribute(4, DataObject::OctetString(vec![192, 168, 1, 1]), None)
+        setup.set_attribute(4, DataObject::OctetString(vec![192, 168, 1, 1]), None, None)
             .await
             .unwrap();
         assert_eq!(setup.ip_address().await, [192, 168, 1, 1]);
@@ -592,7 +598,7 @@ mod tests {
     async fn test_tcp_udp_setup_read_only_logical_name() {
         let setup = TcpUdpSetup::with_default_obis();
         let result = setup
-            .set_attribute(1, DataObject::OctetString(vec![0, 0, 69, 0, 0, 1]), None)
+            .set_attribute(1, DataObject::OctetString(vec![0, 0, 69, 0, 0, 1]), None, None)
             .await;
         assert!(result.is_err());
     }
@@ -600,21 +606,21 @@ mod tests {
     #[tokio::test]
     async fn test_tcp_udp_setup_invalid_attribute() {
         let setup = TcpUdpSetup::with_default_obis();
-        let result = setup.get_attribute(99, None).await;
+        let result = setup.get_attribute(99, None, None).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_tcp_udp_setup_invalid_method() {
         let setup = TcpUdpSetup::with_default_obis();
-        let result = setup.invoke_method(1, None, None).await;
+        let result = setup.invoke_method(1, None, None, None).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_tcp_udp_setup_invalid_ip_bytes() {
         let setup = TcpUdpSetup::with_default_obis();
-        let result = setup.set_attribute(4, DataObject::OctetString(vec![1, 2]), None).await;
+        let result = setup.set_attribute(4, DataObject::OctetString(vec![1, 2]), None, None).await;
         assert!(result.is_err());
     }
 

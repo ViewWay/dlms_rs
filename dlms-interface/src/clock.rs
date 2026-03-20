@@ -265,7 +265,9 @@ impl CosemObject for Clock {
         &self,
         attribute_id: u8,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<DataObject> {
+        crate::enforce_attribute_read(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Ok(DataObject::OctetString(self.logical_name.to_bytes().to_vec()))
@@ -306,7 +308,9 @@ impl CosemObject for Clock {
         attribute_id: u8,
         value: DataObject,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<()> {
+        crate::enforce_attribute_write(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Err(DlmsError::AccessDenied(
@@ -419,7 +423,9 @@ impl CosemObject for Clock {
         method_id: u8,
         parameters: Option<DataObject>,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<Option<DataObject>> {
+        crate::enforce_method_execute(ctx, self.class_id(), self.obis_code(), method_id).await?;
         match method_id {
             Self::METHOD_ADJUST_TIME => {
                 if let Some(DataObject::OctetString(bytes)) = parameters {
@@ -470,7 +476,7 @@ mod tests {
     #[tokio::test]
     async fn test_clock_get_time() {
         let clock = Clock::with_default_obis();
-        let result = clock.get_attribute(2, None).await.unwrap();
+        let result = clock.get_attribute(2, None, None).await.unwrap();
 
         match result {
             DataObject::OctetString(bytes) => {
@@ -483,14 +489,14 @@ mod tests {
     #[tokio::test]
     async fn test_clock_set_time_zone() {
         let clock = Clock::with_default_obis();
-        clock.set_attribute(3, DataObject::Integer16(480), None).await.unwrap();
+        clock.set_attribute(3, DataObject::Integer16(480), None, None).await.unwrap();
         assert_eq!(clock.time_zone().await, 480); // UTC+8
     }
 
     #[tokio::test]
     async fn test_clock_status() {
         let clock = Clock::with_default_obis();
-        let result = clock.get_attribute(4, None).await.unwrap();
+        let result = clock.get_attribute(4, None, None).await.unwrap();
 
         match result {
             DataObject::Unsigned8(status) => {
@@ -507,7 +513,7 @@ mod tests {
         let new_dt = CosemDateTime::new(2024, 6, 15, 12, 30, 0, 0, &[]).unwrap();
 
         let param = DataObject::OctetString(new_dt.encode());
-        clock.invoke_method(1, Some(param), None).await.unwrap();
+        clock.invoke_method(1, Some(param), None, None).await.unwrap();
 
         let retrieved = clock.time().await;
         assert_eq!(retrieved.get(Field::Year).unwrap(), 2024);
@@ -519,7 +525,7 @@ mod tests {
     async fn test_clock_method_adjust_timezone() {
         let clock = Clock::with_default_obis();
         let param = DataObject::Integer16(-300); // UTC-5
-        clock.invoke_method(2, Some(param), None).await.unwrap();
+        clock.invoke_method(2, Some(param), None, None).await.unwrap();
 
         assert_eq!(clock.time_zone().await, -300);
     }
@@ -530,13 +536,13 @@ mod tests {
 
         // Set DST enabled
         clock.set_daylight_savings_enabled(true).await;
-        let result = clock.get_attribute(8, None).await.unwrap();
+        let result = clock.get_attribute(8, None, None).await.unwrap();
         assert_eq!(result, DataObject::Boolean(true));
 
         // Set DST begin date
         let dst_begin = CosemDate::new(2024, 3, 10).unwrap();
         clock.set_daylight_savings_begin(Some(dst_begin)).await;
-        let result = clock.get_attribute(5, None).await.unwrap();
+        let result = clock.get_attribute(5, None, None).await.unwrap();
         match result {
             DataObject::OctetString(bytes) => {
                 assert_eq!(bytes.len(), 5);
@@ -548,7 +554,7 @@ mod tests {
     #[tokio::test]
     async fn test_clock_invalid_attribute() {
         let clock = Clock::with_default_obis();
-        let result = clock.get_attribute(99, None).await;
+        let result = clock.get_attribute(99, None, None).await;
         assert!(result.is_err());
     }
 
@@ -556,7 +562,7 @@ mod tests {
     async fn test_clock_set_status() {
         let clock = Clock::with_default_obis();
         // Set status with DaylightSavingActive flag
-        clock.set_attribute(4, DataObject::Unsigned8(ClockStatus::DaylightSavingActive as u8), None).await.unwrap();
+        clock.set_attribute(4, DataObject::Unsigned8(ClockStatus::DaylightSavingActive as u8), None, None).await.unwrap();
         assert_eq!(clock.status().await, ClockStatus::DaylightSavingActive as u8);
     }
 
@@ -565,7 +571,7 @@ mod tests {
         let clock = Clock::with_default_obis();
         let dst_begin = CosemDate::new(2024, 3, 10).unwrap();
 
-        clock.set_attribute(5, DataObject::OctetString(dst_begin.encode()), None).await.unwrap();
+        clock.set_attribute(5, DataObject::OctetString(dst_begin.encode()), None, None).await.unwrap();
 
         let retrieved = clock.daylight_savings_begin().await;
         assert!(retrieved.is_some());
@@ -582,14 +588,14 @@ mod tests {
         clock.set_daylight_savings_begin(Some(dst_begin)).await;
 
         // Clear with Null
-        clock.set_attribute(5, DataObject::Null, None).await.unwrap();
+        clock.set_attribute(5, DataObject::Null, None, None).await.unwrap();
         assert!(clock.daylight_savings_begin().await.is_none());
     }
 
     #[tokio::test]
     async fn test_clock_base() {
         let clock = Clock::with_default_obis();
-        clock.set_attribute(9, DataObject::Unsigned8(1), None).await.unwrap();
+        clock.set_attribute(9, DataObject::Unsigned8(1), None, None).await.unwrap();
         assert_eq!(clock.clock_base().await, 1);
     }
 }

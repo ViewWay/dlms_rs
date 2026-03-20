@@ -239,7 +239,9 @@ impl CosemObject for LedDisplay {
         &self,
         attribute_id: u8,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<DataObject> {
+        crate::enforce_attribute_read(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Ok(DataObject::OctetString(self.logical_name.to_bytes().to_vec()))
@@ -274,7 +276,9 @@ impl CosemObject for LedDisplay {
         attribute_id: u8,
         value: DataObject,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<()> {
+        crate::enforce_attribute_write(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Err(DlmsError::AccessDenied(
@@ -360,7 +364,9 @@ impl CosemObject for LedDisplay {
         method_id: u8,
         _parameters: Option<DataObject>,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<Option<DataObject>> {
+        crate::enforce_method_execute(ctx, self.class_id(), self.obis_code(), method_id).await?;
         Err(DlmsError::InvalidData(format!(
             "LedDisplay has no method {}",
             method_id
@@ -504,14 +510,14 @@ mod tests {
         let led = LedDisplay::with_default_obis();
 
         // Test display_enabled
-        let result = led.get_attribute(3, None).await.unwrap();
+        let result = led.get_attribute(3, None, None).await.unwrap();
         match result {
             DataObject::Boolean(enabled) => assert!(enabled),
             _ => panic!("Expected Boolean"),
         }
 
         // Test brightness_level
-        let result = led.get_attribute(4, None).await.unwrap();
+        let result = led.get_attribute(4, None, None).await.unwrap();
         match result {
             DataObject::Unsigned8(level) => assert_eq!(level, 100),
             _ => panic!("Expected Unsigned8"),
@@ -522,12 +528,12 @@ mod tests {
     async fn test_led_display_set_attributes() {
         let led = LedDisplay::with_default_obis();
 
-        led.set_attribute(2, DataObject::OctetString(b"Test".to_vec()), None)
+        led.set_attribute(2, DataObject::OctetString(b"Test".to_vec()), None, None)
             .await
             .unwrap();
         assert_eq!(led.display_text().await, "Test");
 
-        led.set_attribute(7, DataObject::Enumerate(3), None) // Blink
+        led.set_attribute(7, DataObject::Enumerate(3), None, None) // Blink
             .await
             .unwrap();
         assert_eq!(led.display_mode().await, DisplayMode::Blink);
@@ -537,7 +543,7 @@ mod tests {
     async fn test_led_display_read_only_logical_name() {
         let led = LedDisplay::with_default_obis();
         let result = led
-            .set_attribute(1, DataObject::OctetString(vec![0, 0, 49, 0, 0, 1]), None)
+            .set_attribute(1, DataObject::OctetString(vec![0, 0, 49, 0, 0, 1]), None, None)
             .await;
         assert!(result.is_err());
     }
@@ -545,14 +551,14 @@ mod tests {
     #[tokio::test]
     async fn test_led_display_invalid_attribute() {
         let led = LedDisplay::with_default_obis();
-        let result = led.get_attribute(99, None).await;
+        let result = led.get_attribute(99, None, None).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_led_display_invalid_method() {
         let led = LedDisplay::with_default_obis();
-        let result = led.invoke_method(1, None, None).await;
+        let result = led.invoke_method(1, None, None, None).await;
         assert!(result.is_err());
     }
 }

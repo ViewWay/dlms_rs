@@ -308,7 +308,9 @@ impl CosemObject for PaymentMeter {
         &self,
         attribute_id: u8,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<DataObject> {
+        crate::enforce_attribute_read(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Ok(DataObject::OctetString(self.logical_name.to_bytes().to_vec()))
@@ -349,7 +351,9 @@ impl CosemObject for PaymentMeter {
         attribute_id: u8,
         value: DataObject,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<()> {
+        crate::enforce_attribute_write(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Err(DlmsError::AccessDenied(
@@ -450,7 +454,9 @@ impl CosemObject for PaymentMeter {
         method_id: u8,
         _parameters: Option<DataObject>,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<Option<DataObject>> {
+        crate::enforce_method_execute(ctx, self.class_id(), self.obis_code(), method_id).await?;
         Err(DlmsError::InvalidData(format!(
             "PaymentMeter has no method {}",
             method_id
@@ -649,21 +655,21 @@ mod tests {
         let pm = PaymentMeter::with_default_obis();
 
         // Test payment_method
-        let result = pm.get_attribute(2, None).await.unwrap();
+        let result = pm.get_attribute(2, None, None).await.unwrap();
         match result {
             DataObject::Enumerate(method) => assert_eq!(method, 0), // Cash
             _ => panic!("Expected Enumerate"),
         }
 
         // Test payment_status
-        let result = pm.get_attribute(3, None).await.unwrap();
+        let result = pm.get_attribute(3, None, None).await.unwrap();
         match result {
             DataObject::Enumerate(status) => assert_eq!(status, 0), // NoPaymentDue
             _ => panic!("Expected Enumerate"),
         }
 
         // Test total_payments
-        let result = pm.get_attribute(4, None).await.unwrap();
+        let result = pm.get_attribute(4, None, None).await.unwrap();
         match result {
             DataObject::Unsigned32(count) => assert_eq!(count, 0),
             _ => panic!("Expected Unsigned32"),
@@ -674,17 +680,17 @@ mod tests {
     async fn test_payment_meter_set_attributes() {
         let pm = PaymentMeter::with_default_obis();
 
-        pm.set_attribute(2, DataObject::Enumerate(1), None) // CreditCard
+        pm.set_attribute(2, DataObject::Enumerate(1), None, None) // CreditCard
             .await
             .unwrap();
         assert_eq!(pm.payment_method().await, PaymentMethod::CreditCard);
 
-        pm.set_attribute(3, DataObject::Enumerate(1), None) // PaymentPending
+        pm.set_attribute(3, DataObject::Enumerate(1), None, None) // PaymentPending
             .await
             .unwrap();
         assert_eq!(pm.payment_status().await, PaymentStatus::PaymentPending);
 
-        pm.set_attribute(4, DataObject::Unsigned32(5), None)
+        pm.set_attribute(4, DataObject::Unsigned32(5), None, None)
             .await
             .unwrap();
         assert_eq!(pm.total_payments().await, 5);
@@ -694,7 +700,7 @@ mod tests {
     async fn test_payment_meter_read_only_logical_name() {
         let pm = PaymentMeter::with_default_obis();
         let result = pm
-            .set_attribute(1, DataObject::OctetString(vec![0, 0, 82, 0, 0, 1]), None)
+            .set_attribute(1, DataObject::OctetString(vec![0, 0, 82, 0, 0, 1]), None, None)
             .await;
         assert!(result.is_err());
     }
@@ -702,14 +708,14 @@ mod tests {
     #[tokio::test]
     async fn test_payment_meter_invalid_attribute() {
         let pm = PaymentMeter::with_default_obis();
-        let result = pm.get_attribute(99, None).await;
+        let result = pm.get_attribute(99, None, None).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_payment_meter_invalid_method() {
         let pm = PaymentMeter::with_default_obis();
-        let result = pm.invoke_method(1, None, None).await;
+        let result = pm.invoke_method(1, None, None, None).await;
         assert!(result.is_err());
     }
 
@@ -718,7 +724,7 @@ mod tests {
         let pm = PaymentMeter::with_default_obis();
 
         // Default date is None, should return Null DataObject
-        let result = pm.get_attribute(7, None).await.unwrap();
+        let result = pm.get_attribute(7, None, None).await.unwrap();
         assert!(matches!(result, DataObject::Null));
     }
 }

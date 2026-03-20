@@ -315,7 +315,9 @@ impl CosemObject for CompactData {
         &self,
         attribute_id: u8,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<DataObject> {
+        crate::enforce_attribute_read(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Ok(DataObject::OctetString(self.logical_name.to_bytes().to_vec()))
@@ -344,7 +346,9 @@ impl CosemObject for CompactData {
         attribute_id: u8,
         value: DataObject,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<()> {
+        crate::enforce_attribute_write(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Err(DlmsError::AccessDenied(
@@ -404,7 +408,9 @@ impl CosemObject for CompactData {
         method_id: u8,
         _parameters: Option<DataObject>,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<Option<DataObject>> {
+        crate::enforce_method_execute(ctx, self.class_id(), self.obis_code(), method_id).await?;
         Err(DlmsError::InvalidData(format!(
             "CompactData has no method {}",
             method_id
@@ -620,14 +626,14 @@ mod tests {
         let cd = CompactData::with_default_obis();
 
         // Test buffer
-        let result = cd.get_attribute(2, None).await.unwrap();
+        let result = cd.get_attribute(2, None, None).await.unwrap();
         match result {
             DataObject::OctetString(bytes) => assert!(bytes.is_empty()),
             _ => panic!("Expected OctetString"),
         }
 
         // Test buffer_size
-        let result = cd.get_attribute(3, None).await.unwrap();
+        let result = cd.get_attribute(3, None, None).await.unwrap();
         match result {
             DataObject::Unsigned16(size) => assert_eq!(size, 1024),
             _ => panic!("Expected Unsigned16"),
@@ -638,12 +644,12 @@ mod tests {
     async fn test_compact_data_set_attributes() {
         let cd = CompactData::with_default_obis();
 
-        cd.set_attribute(2, DataObject::OctetString(vec![10, 20, 30]), None)
+        cd.set_attribute(2, DataObject::OctetString(vec![10, 20, 30]), None, None)
             .await
             .unwrap();
         assert_eq!(cd.buffer().await, vec![10, 20, 30]);
 
-        cd.set_attribute(3, DataObject::Unsigned16(512), None)
+        cd.set_attribute(3, DataObject::Unsigned16(512), None, None)
             .await
             .unwrap();
         assert_eq!(cd.buffer_size().await, 512);
@@ -652,7 +658,7 @@ mod tests {
     #[tokio::test]
     async fn test_compact_data_set_capture_time() {
         let cd = CompactData::with_default_obis();
-        cd.set_attribute(4, DataObject::Integer64(1609459200), None)
+        cd.set_attribute(4, DataObject::Integer64(1609459200), None, None)
             .await
             .unwrap();
         assert_eq!(cd.capture_time().await, Some(1609459200));
@@ -662,7 +668,7 @@ mod tests {
     async fn test_compact_data_read_only_logical_name() {
         let cd = CompactData::with_default_obis();
         let result = cd
-            .set_attribute(1, DataObject::OctetString(vec![0, 0, 92, 0, 0, 1]), None)
+            .set_attribute(1, DataObject::OctetString(vec![0, 0, 92, 0, 0, 1]), None, None)
             .await;
         assert!(result.is_err());
     }
@@ -670,14 +676,14 @@ mod tests {
     #[tokio::test]
     async fn test_compact_data_invalid_attribute() {
         let cd = CompactData::with_default_obis();
-        let result = cd.get_attribute(99, None).await;
+        let result = cd.get_attribute(99, None, None).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_compact_data_invalid_method() {
         let cd = CompactData::with_default_obis();
-        let result = cd.invoke_method(1, None, None).await;
+        let result = cd.invoke_method(1, None, None, None).await;
         assert!(result.is_err());
     }
 
@@ -691,7 +697,7 @@ mod tests {
     #[tokio::test]
     async fn test_compact_data_set_buffer_size_u8() {
         let cd = CompactData::with_default_obis();
-        cd.set_attribute(3, DataObject::Unsigned8(200), None)
+        cd.set_attribute(3, DataObject::Unsigned8(200), None, None)
             .await
             .unwrap();
         assert_eq!(cd.buffer_size().await, 200);

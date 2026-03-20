@@ -287,7 +287,9 @@ impl CosemObject for Credit {
         &self,
         attribute_id: u8,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<DataObject> {
+        crate::enforce_attribute_read(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Ok(DataObject::OctetString(self.logical_name.to_bytes().to_vec()))
@@ -325,7 +327,9 @@ impl CosemObject for Credit {
         attribute_id: u8,
         value: DataObject,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<()> {
+        crate::enforce_attribute_write(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Err(DlmsError::AccessDenied(
@@ -423,7 +427,9 @@ impl CosemObject for Credit {
         method_id: u8,
         _parameters: Option<DataObject>,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<Option<DataObject>> {
+        crate::enforce_method_execute(ctx, self.class_id(), self.obis_code(), method_id).await?;
         Err(DlmsError::InvalidData(format!(
             "Credit has no method {}",
             method_id
@@ -573,14 +579,14 @@ mod tests {
         let c = Credit::with_default_obis();
 
         // Test credit_available
-        let result = c.get_attribute(2, None).await.unwrap();
+        let result = c.get_attribute(2, None, None).await.unwrap();
         match result {
             DataObject::Integer64(credit) => assert_eq!(credit, 0),
             _ => panic!("Expected Integer64"),
         }
 
         // Test credit_type
-        let result = c.get_attribute(4, None).await.unwrap();
+        let result = c.get_attribute(4, None, None).await.unwrap();
         match result {
             DataObject::Enumerate(ctype) => assert_eq!(ctype, 0), // Monetary
             _ => panic!("Expected Enumerate"),
@@ -591,12 +597,12 @@ mod tests {
     async fn test_credit_set_attributes() {
         let c = Credit::with_default_obis();
 
-        c.set_attribute(2, DataObject::Integer64(100), None)
+        c.set_attribute(2, DataObject::Integer64(100), None, None)
             .await
             .unwrap();
         assert_eq!(c.credit_available().await, 100);
 
-        c.set_attribute(5, DataObject::Unsigned8(3), None)
+        c.set_attribute(5, DataObject::Unsigned8(3), None, None)
             .await
             .unwrap();
         assert_eq!(c.priority_level().await, 3);
@@ -606,7 +612,7 @@ mod tests {
     async fn test_credit_read_only_logical_name() {
         let c = Credit::with_default_obis();
         let result = c
-            .set_attribute(1, DataObject::OctetString(vec![0, 0, 61, 0, 0, 1]), None)
+            .set_attribute(1, DataObject::OctetString(vec![0, 0, 61, 0, 0, 1]), None, None)
             .await;
         assert!(result.is_err());
     }
@@ -614,14 +620,14 @@ mod tests {
     #[tokio::test]
     async fn test_credit_invalid_attribute() {
         let c = Credit::with_default_obis();
-        let result = c.get_attribute(99, None).await;
+        let result = c.get_attribute(99, None, None).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_credit_invalid_method() {
         let c = Credit::with_default_obis();
-        let result = c.invoke_method(1, None, None).await;
+        let result = c.invoke_method(1, None, None, None).await;
         assert!(result.is_err());
     }
 }

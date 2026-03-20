@@ -273,7 +273,9 @@ impl CosemObject for FirmwareController {
         &self,
         attribute_id: u8,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<DataObject> {
+        crate::enforce_attribute_read(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Ok(DataObject::OctetString(self.logical_name.to_bytes().to_vec()))
@@ -305,7 +307,9 @@ impl CosemObject for FirmwareController {
         attribute_id: u8,
         value: DataObject,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<()> {
+        crate::enforce_attribute_write(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Err(DlmsError::AccessDenied(
@@ -372,7 +376,9 @@ impl CosemObject for FirmwareController {
         method_id: u8,
         _parameters: Option<DataObject>,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<Option<DataObject>> {
+        crate::enforce_method_execute(ctx, self.class_id(), self.obis_code(), method_id).await?;
         Err(DlmsError::InvalidData(format!(
             "FirmwareController has no method {}",
             method_id
@@ -540,7 +546,7 @@ mod tests {
         let fc = FirmwareController::with_default_obis();
 
         // Test firmware_version
-        let result = fc.get_attribute(2, None).await.unwrap();
+        let result = fc.get_attribute(2, None, None).await.unwrap();
         match result {
             DataObject::OctetString(bytes) => {
                 assert_eq!(String::from_utf8_lossy(&bytes), "1.0.0");
@@ -549,7 +555,7 @@ mod tests {
         }
 
         // Test update_status
-        let result = fc.get_attribute(4, None).await.unwrap();
+        let result = fc.get_attribute(4, None, None).await.unwrap();
         match result {
             DataObject::Enumerate(status) => assert_eq!(status, 0), // NoUpdate
             _ => panic!("Expected Enumerate"),
@@ -560,12 +566,12 @@ mod tests {
     async fn test_firmware_controller_set_attributes() {
         let fc = FirmwareController::with_default_obis();
 
-        fc.set_attribute(2, DataObject::OctetString(b"3.0.0".to_vec()), None)
+        fc.set_attribute(2, DataObject::OctetString(b"3.0.0".to_vec()), None, None)
             .await
             .unwrap();
         assert_eq!(fc.firmware_version().await, "3.0.0");
 
-        fc.set_attribute(4, DataObject::Enumerate(2), None) // Success
+        fc.set_attribute(4, DataObject::Enumerate(2), None, None) // Success
             .await
             .unwrap();
         assert!(fc.is_update_successful().await);
@@ -575,7 +581,7 @@ mod tests {
     async fn test_firmware_controller_read_only_logical_name() {
         let fc = FirmwareController::with_default_obis();
         let result = fc
-            .set_attribute(1, DataObject::OctetString(vec![0, 0, 83, 0, 0, 1]), None)
+            .set_attribute(1, DataObject::OctetString(vec![0, 0, 83, 0, 0, 1]), None, None)
             .await;
         assert!(result.is_err());
     }
@@ -583,14 +589,14 @@ mod tests {
     #[tokio::test]
     async fn test_firmware_controller_invalid_attribute() {
         let fc = FirmwareController::with_default_obis();
-        let result = fc.get_attribute(99, None).await;
+        let result = fc.get_attribute(99, None, None).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_firmware_controller_invalid_method() {
         let fc = FirmwareController::with_default_obis();
-        let result = fc.invoke_method(1, None, None).await;
+        let result = fc.invoke_method(1, None, None, None).await;
         assert!(result.is_err());
     }
 
@@ -604,7 +610,7 @@ mod tests {
     #[tokio::test]
     async fn test_firmware_controller_update_time_null() {
         let fc = FirmwareController::with_default_obis();
-        fc.set_attribute(5, DataObject::Null, None)
+        fc.set_attribute(5, DataObject::Null, None, None)
             .await
             .unwrap();
         assert_eq!(fc.update_time().await, None);

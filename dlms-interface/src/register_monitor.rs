@@ -500,7 +500,9 @@ impl CosemObject for RegisterMonitor {
         &self,
         attribute_id: u8,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<DataObject> {
+        crate::enforce_attribute_read(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Ok(DataObject::OctetString(self.logical_name.to_bytes().to_vec()))
@@ -529,7 +531,9 @@ impl CosemObject for RegisterMonitor {
         attribute_id: u8,
         value: DataObject,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<()> {
+        crate::enforce_attribute_write(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Err(DlmsError::AccessDenied(
@@ -580,7 +584,9 @@ impl CosemObject for RegisterMonitor {
         method_id: u8,
         _parameters: Option<DataObject>,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<Option<DataObject>> {
+        crate::enforce_method_execute(ctx, self.class_id(), self.obis_code(), method_id).await?;
         match method_id {
             Self::METHOD_ACTIVATE => {
                 self.activate().await?;
@@ -799,7 +805,7 @@ mod tests {
     #[tokio::test]
     async fn test_register_monitor_get_logical_name() {
         let monitor = RegisterMonitor::with_default_obis();
-        let result = monitor.get_attribute(1, None).await.unwrap();
+        let result = monitor.get_attribute(1, None, None).await.unwrap();
 
         match result {
             DataObject::OctetString(bytes) => {
@@ -812,13 +818,13 @@ mod tests {
     #[tokio::test]
     async fn test_register_monitor_get_monitored_value() {
         let monitor = RegisterMonitor::with_default_obis();
-        let result = monitor.get_attribute(2, None).await.unwrap();
+        let result = monitor.get_attribute(2, None, None).await.unwrap();
         assert_eq!(result, DataObject::Null);
 
         let val = MonitoredValueRef::new(3, ObisCode::new(1, 1, 1, 1, 1, 255), 2);
         monitor.set_monitored_value(Some(val)).await;
 
-        let result = monitor.get_attribute(2, None).await.unwrap();
+        let result = monitor.get_attribute(2, None, None).await.unwrap();
         match result {
             DataObject::Array(_) => {}
             _ => panic!("Expected Array"),
@@ -828,7 +834,7 @@ mod tests {
     #[tokio::test]
     async fn test_register_monitor_get_threshold_list() {
         let monitor = RegisterMonitor::with_default_obis();
-        let result = monitor.get_attribute(3, None).await.unwrap();
+        let result = monitor.get_attribute(3, None, None).await.unwrap();
         match result {
             DataObject::Array(arr) => {
                 assert_eq!(arr.len(), 0);
@@ -845,7 +851,7 @@ mod tests {
             DataObject::OctetString(vec![1, 1, 1, 1, 1, 255]),
             DataObject::Unsigned8(2),
         ]);
-        monitor.set_attribute(2, val_data, None).await.unwrap();
+        monitor.set_attribute(2, val_data, None, None).await.unwrap();
 
         assert!(monitor.monitored_value().await.is_some());
     }
@@ -859,7 +865,7 @@ mod tests {
             DataObject::Enumerate(1),
         ]);
         monitor
-            .set_attribute(3, DataObject::Array(vec![threshold_data]), None)
+            .set_attribute(3, DataObject::Array(vec![threshold_data]), None, None)
             .await
             .unwrap();
 
@@ -870,7 +876,7 @@ mod tests {
     async fn test_register_monitor_read_only_logical_name() {
         let monitor = RegisterMonitor::with_default_obis();
         let result = monitor
-            .set_attribute(1, DataObject::OctetString(vec![0, 0, 14, 0, 0, 1]), None)
+            .set_attribute(1, DataObject::OctetString(vec![0, 0, 14, 0, 0, 1]), None, None)
             .await;
         assert!(result.is_err());
     }
@@ -881,7 +887,7 @@ mod tests {
         let val = MonitoredValueRef::new(3, ObisCode::new(1, 1, 1, 1, 1, 255), 2);
         monitor.set_monitored_value(Some(val)).await;
 
-        let result = monitor.invoke_method(1, None, None).await;
+        let result = monitor.invoke_method(1, None, None, None).await;
         assert!(result.is_ok());
         assert!(monitor.is_active().await);
     }
@@ -893,21 +899,21 @@ mod tests {
         monitor.set_monitored_value(Some(val)).await;
         monitor.activate().await.unwrap();
 
-        monitor.invoke_method(2, None, None).await.unwrap();
+        monitor.invoke_method(2, None, None, None).await.unwrap();
         assert!(!monitor.is_active().await);
     }
 
     #[tokio::test]
     async fn test_register_monitor_invalid_attribute() {
         let monitor = RegisterMonitor::with_default_obis();
-        let result = monitor.get_attribute(99, None).await;
+        let result = monitor.get_attribute(99, None, None).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_register_monitor_invalid_method() {
         let monitor = RegisterMonitor::with_default_obis();
-        let result = monitor.invoke_method(99, None, None).await;
+        let result = monitor.invoke_method(99, None, None, None).await;
         assert!(result.is_err());
     }
 }

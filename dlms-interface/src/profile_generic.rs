@@ -524,7 +524,9 @@ impl CosemObject for ProfileGeneric {
         &self,
         attribute_id: u8,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<DataObject> {
+        crate::enforce_attribute_read(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Ok(DataObject::OctetString(self.logical_name.to_bytes().to_vec()))
@@ -573,7 +575,9 @@ impl CosemObject for ProfileGeneric {
         attribute_id: u8,
         value: DataObject,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<()> {
+        crate::enforce_attribute_write(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Err(DlmsError::AccessDenied(
@@ -686,7 +690,9 @@ impl CosemObject for ProfileGeneric {
         method_id: u8,
         _parameters: Option<DataObject>,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<Option<DataObject>> {
+        crate::enforce_method_execute(ctx, self.class_id(), self.obis_code(), method_id).await?;
         match method_id {
             Self::METHOD_RESET => {
                 self.reset().await?;
@@ -724,7 +730,7 @@ mod tests {
     #[tokio::test]
     async fn test_profile_generic_get_logical_name() {
         let profile = ProfileGeneric::with_default_obis(100);
-        let result = profile.get_attribute(1, None).await.unwrap();
+        let result = profile.get_attribute(1, None, None).await.unwrap();
 
         match result {
             DataObject::OctetString(bytes) => {
@@ -739,7 +745,7 @@ mod tests {
         let profile = ProfileGeneric::with_default_obis(100);
         assert_eq!(profile.capture_period().await, 900); // 15 minutes
 
-        profile.set_attribute(5, DataObject::Unsigned32(3600), None).await.unwrap();
+        profile.set_attribute(5, DataObject::Unsigned32(3600), None, None).await.unwrap();
         assert_eq!(profile.capture_period().await, 3600); // 1 hour
     }
 
@@ -748,7 +754,7 @@ mod tests {
         let profile = ProfileGeneric::with_default_obis(100);
         assert_eq!(profile.sort_method().await, ProfileSortMethod::Fifo);
 
-        profile.set_attribute(6, DataObject::Unsigned8(1), None).await.unwrap();
+        profile.set_attribute(6, DataObject::Unsigned8(1), None, None).await.unwrap();
         assert_eq!(profile.sort_method().await, ProfileSortMethod::Lifo);
     }
 
@@ -771,7 +777,7 @@ mod tests {
 
         assert_eq!(profile.entries_in_use().await, 1);
 
-        profile.invoke_method(1, None, None).await.unwrap();
+        profile.invoke_method(1, None, None, None).await.unwrap();
 
         assert_eq!(profile.entries_in_use().await, 0);
         assert!(profile.buffer_timestamp().await.is_none());
@@ -781,7 +787,7 @@ mod tests {
     async fn test_profile_generic_method_capture() {
         let profile = ProfileGeneric::with_default_obis(10);
 
-        profile.invoke_method(2, None, None).await.unwrap();
+        profile.invoke_method(2, None, None, None).await.unwrap();
 
         assert_eq!(profile.entries_in_use().await, 1);
     }
@@ -806,7 +812,7 @@ mod tests {
     #[tokio::test]
     async fn test_profile_generic_invalid_attribute() {
         let profile = ProfileGeneric::with_default_obis(100);
-        let result = profile.get_attribute(99, None).await;
+        let result = profile.get_attribute(99, None, None).await;
         assert!(result.is_err());
     }
 
@@ -816,7 +822,7 @@ mod tests {
         let timestamp = CosemDateTime::new(2024, 6, 15, 12, 0, 0, 0, &[]).unwrap();
         profile.capture_with_timestamp(timestamp.clone(), vec![DataObject::Unsigned32(100)]).await.unwrap();
 
-        let result = profile.get_attribute(2, None).await.unwrap();
+        let result = profile.get_attribute(2, None, None).await.unwrap();
 
         match result {
             DataObject::Array(entries) => {
@@ -840,7 +846,7 @@ mod tests {
 
         profile.add_capture_object(descriptor).await;
 
-        let result = profile.get_attribute(4, None).await.unwrap();
+        let result = profile.get_attribute(4, None, None).await.unwrap();
 
         match result {
             DataObject::Array(entries) => {
@@ -862,7 +868,7 @@ mod tests {
 
         let value = DataObject::Array(vec![DataObject::Structure(obj_fields)]);
 
-        profile.set_attribute(4, value, None).await.unwrap();
+        profile.set_attribute(4, value, None, None).await.unwrap();
 
         let objects = profile.capture_objects().await;
         assert_eq!(objects.len(), 1);
@@ -879,7 +885,7 @@ mod tests {
         // Set capture active flag
         profile.set_buffer_status(ProfileBufferStatus::CaptureActive as u8).await;
 
-        let result = profile.get_attribute(10, None).await.unwrap();
+        let result = profile.get_attribute(10, None, None).await.unwrap();
         match result {
             DataObject::Unsigned8(status) => {
                 assert_eq!(status, ProfileBufferStatus::CaptureActive as u8);

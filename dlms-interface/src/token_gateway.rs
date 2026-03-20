@@ -308,7 +308,9 @@ impl CosemObject for TokenGateway {
         &self,
         attribute_id: u8,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<DataObject> {
+        crate::enforce_attribute_read(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Ok(DataObject::OctetString(self.logical_name.to_bytes().to_vec()))
@@ -352,7 +354,9 @@ impl CosemObject for TokenGateway {
         attribute_id: u8,
         value: DataObject,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<()> {
+        crate::enforce_attribute_write(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Err(DlmsError::AccessDenied(
@@ -466,7 +470,9 @@ impl CosemObject for TokenGateway {
         method_id: u8,
         _parameters: Option<DataObject>,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<Option<DataObject>> {
+        crate::enforce_method_execute(ctx, self.class_id(), self.obis_code(), method_id).await?;
         Err(DlmsError::InvalidData(format!(
             "TokenGateway has no method {}",
             method_id
@@ -626,21 +632,21 @@ mod tests {
         tg.load_token("T1".to_string(), 100, TokenType::Credit).await;
 
         // Test token_id
-        let result = tg.get_attribute(2, None).await.unwrap();
+        let result = tg.get_attribute(2, None, None).await.unwrap();
         match result {
             DataObject::OctetString(bytes) => assert_eq!(String::from_utf8_lossy(&bytes), "T1"),
             _ => panic!("Expected OctetString"),
         }
 
         // Test token_amount
-        let result = tg.get_attribute(4, None).await.unwrap();
+        let result = tg.get_attribute(4, None, None).await.unwrap();
         match result {
             DataObject::Integer64(amount) => assert_eq!(amount, 100),
             _ => panic!("Expected Integer64"),
         }
 
         // Test token_status
-        let result = tg.get_attribute(3, None).await.unwrap();
+        let result = tg.get_attribute(3, None, None).await.unwrap();
         match result {
             DataObject::Enumerate(status) => assert_eq!(status, 0), // Valid
             _ => panic!("Expected Enumerate"),
@@ -651,17 +657,17 @@ mod tests {
     async fn test_token_gateway_set_attributes() {
         let tg = TokenGateway::with_default_obis();
 
-        tg.set_attribute(2, DataObject::OctetString(b"NEW-TOKEN".to_vec()), None)
+        tg.set_attribute(2, DataObject::OctetString(b"NEW-TOKEN".to_vec()), None, None)
             .await
             .unwrap();
         assert_eq!(tg.token_id().await, "NEW-TOKEN");
 
-        tg.set_attribute(4, DataObject::Integer64(250), None)
+        tg.set_attribute(4, DataObject::Integer64(250), None, None)
             .await
             .unwrap();
         assert_eq!(tg.token_amount().await, 250);
 
-        tg.set_attribute(3, DataObject::Enumerate(1), None) // Used
+        tg.set_attribute(3, DataObject::Enumerate(1), None, None) // Used
             .await
             .unwrap();
         assert_eq!(tg.token_status().await, TokenStatus::Used);
@@ -671,7 +677,7 @@ mod tests {
     async fn test_token_gateway_read_only_logical_name() {
         let tg = TokenGateway::with_default_obis();
         let result = tg
-            .set_attribute(1, DataObject::OctetString(vec![0, 0, 81, 0, 0, 1]), None)
+            .set_attribute(1, DataObject::OctetString(vec![0, 0, 81, 0, 0, 1]), None, None)
             .await;
         assert!(result.is_err());
     }
@@ -679,14 +685,14 @@ mod tests {
     #[tokio::test]
     async fn test_token_gateway_invalid_attribute() {
         let tg = TokenGateway::with_default_obis();
-        let result = tg.get_attribute(99, None).await;
+        let result = tg.get_attribute(99, None, None).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_token_gateway_invalid_method() {
         let tg = TokenGateway::with_default_obis();
-        let result = tg.invoke_method(1, None, None).await;
+        let result = tg.invoke_method(1, None, None, None).await;
         assert!(result.is_err());
     }
 
@@ -695,10 +701,10 @@ mod tests {
         let tg = TokenGateway::with_default_obis();
 
         // Default dates are None, should return Null DataObject
-        let result = tg.get_attribute(6, None).await.unwrap();
+        let result = tg.get_attribute(6, None, None).await.unwrap();
         assert!(matches!(result, DataObject::Null));
 
-        let result = tg.get_attribute(7, None).await.unwrap();
+        let result = tg.get_attribute(7, None, None).await.unwrap();
         assert!(matches!(result, DataObject::Null));
     }
 }

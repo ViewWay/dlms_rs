@@ -237,7 +237,9 @@ impl CosemObject for SapAssignment {
         &self,
         attribute_id: u8,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<DataObject> {
+        crate::enforce_attribute_read(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Ok(DataObject::OctetString(self.logical_name.to_bytes().to_vec()))
@@ -262,7 +264,9 @@ impl CosemObject for SapAssignment {
         attribute_id: u8,
         value: DataObject,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<()> {
+        crate::enforce_attribute_write(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Err(DlmsError::AccessDenied(
@@ -302,7 +306,9 @@ impl CosemObject for SapAssignment {
         method_id: u8,
         parameters: Option<DataObject>,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<Option<DataObject>> {
+        crate::enforce_method_execute(ctx, self.class_id(), self.obis_code(), method_id).await?;
         match method_id {
             Self::METHOD_SAP_ASSIGN => {
                 match parameters {
@@ -524,7 +530,7 @@ mod tests {
     #[tokio::test]
     async fn test_sap_assignment_get_logical_name() {
         let sap = SapAssignment::with_default_obis();
-        let result = sap.get_attribute(1, None).await.unwrap();
+        let result = sap.get_attribute(1, None, None).await.unwrap();
 
         match result {
             DataObject::OctetString(bytes) => {
@@ -541,7 +547,7 @@ mod tests {
 
         sap.assign(100, 3, obis).await;
 
-        let result = sap.get_attribute(2, None).await.unwrap();
+        let result = sap.get_attribute(2, None, None).await.unwrap();
         match result {
             DataObject::Array(arr) => {
                 assert_eq!(arr.len(), 1);
@@ -561,7 +567,7 @@ mod tests {
             DataObject::OctetString(obis.to_bytes().to_vec()),
         ]);
 
-        sap.set_attribute(2, DataObject::Array(vec![entry_data]), None)
+        sap.set_attribute(2, DataObject::Array(vec![entry_data]), None, None)
             .await
             .unwrap();
 
@@ -577,7 +583,7 @@ mod tests {
         sap.assign(100, 3, obis).await;
         assert_eq!(sap.len().await, 1);
 
-        sap.set_attribute(2, DataObject::Null, None)
+        sap.set_attribute(2, DataObject::Null, None, None)
             .await
             .unwrap();
 
@@ -588,7 +594,7 @@ mod tests {
     async fn test_sap_assignment_read_only_logical_name() {
         let sap = SapAssignment::with_default_obis();
         let result = sap
-            .set_attribute(1, DataObject::OctetString(vec![0, 0, 17, 0, 0, 1]), None)
+            .set_attribute(1, DataObject::OctetString(vec![0, 0, 17, 0, 0, 1]), None, None)
             .await;
         assert!(result.is_err());
     }
@@ -604,7 +610,7 @@ mod tests {
             DataObject::OctetString(obis.to_bytes().to_vec()),
         ]);
 
-        sap.invoke_method(1, Some(params), None).await.unwrap();
+        sap.invoke_method(1, Some(params), None, None).await.unwrap();
         assert!(sap.is_assigned(100).await);
     }
 
@@ -616,7 +622,7 @@ mod tests {
         sap.assign(100, 3, obis).await;
         assert!(sap.is_assigned(100).await);
 
-        sap.invoke_method(2, Some(DataObject::Unsigned16(100)), None)
+        sap.invoke_method(2, Some(DataObject::Unsigned16(100)), None, None)
             .await
             .unwrap();
 
@@ -626,14 +632,14 @@ mod tests {
     #[tokio::test]
     async fn test_sap_assignment_invalid_attribute() {
         let sap = SapAssignment::with_default_obis();
-        let result = sap.get_attribute(99, None).await;
+        let result = sap.get_attribute(99, None, None).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_sap_assignment_invalid_method() {
         let sap = SapAssignment::with_default_obis();
-        let result = sap.invoke_method(99, None, None).await;
+        let result = sap.invoke_method(99, None, None, None).await;
         assert!(result.is_err());
     }
 

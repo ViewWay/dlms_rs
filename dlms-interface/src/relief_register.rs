@@ -239,7 +239,9 @@ impl CosemObject for ReliefRegister {
         &self,
         attribute_id: u8,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<DataObject> {
+        crate::enforce_attribute_read(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Ok(DataObject::OctetString(self.logical_name.to_bytes().to_vec()))
@@ -268,7 +270,9 @@ impl CosemObject for ReliefRegister {
         attribute_id: u8,
         value: DataObject,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<()> {
+        crate::enforce_attribute_write(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Err(DlmsError::AccessDenied(
@@ -329,7 +333,9 @@ impl CosemObject for ReliefRegister {
         method_id: u8,
         _parameters: Option<DataObject>,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<Option<DataObject>> {
+        crate::enforce_method_execute(ctx, self.class_id(), self.obis_code(), method_id).await?;
         Err(DlmsError::InvalidData(format!(
             "ReliefRegister has no method {}",
             method_id
@@ -477,21 +483,21 @@ mod tests {
         let reg = ReliefRegister::with_default_obis();
 
         // Test current_value
-        let result = reg.get_attribute(2, None).await.unwrap();
+        let result = reg.get_attribute(2, None, None).await.unwrap();
         match result {
             DataObject::Integer64(v) => assert_eq!(v, 0),
             _ => panic!("Expected Integer64"),
         }
 
         // Test normal_value
-        let result = reg.get_attribute(3, None).await.unwrap();
+        let result = reg.get_attribute(3, None, None).await.unwrap();
         match result {
             DataObject::Integer64(v) => assert_eq!(v, 100),
             _ => panic!("Expected Integer64"),
         }
 
         // Test status
-        let result = reg.get_attribute(5, None).await.unwrap();
+        let result = reg.get_attribute(5, None, None).await.unwrap();
         match result {
             DataObject::Enumerate(s) => assert_eq!(s, 0), // Normal
             _ => panic!("Expected Enumerate"),
@@ -502,12 +508,12 @@ mod tests {
     async fn test_relief_register_set_attributes() {
         let reg = ReliefRegister::with_default_obis();
 
-        reg.set_attribute(2, DataObject::Integer64(50), None)
+        reg.set_attribute(2, DataObject::Integer64(50), None, None)
             .await
             .unwrap();
         assert_eq!(reg.current_value().await, 50);
 
-        reg.set_attribute(3, DataObject::Integer64(80), None)
+        reg.set_attribute(3, DataObject::Integer64(80), None, None)
             .await
             .unwrap();
         assert_eq!(reg.normal_value().await, 80);
@@ -517,7 +523,7 @@ mod tests {
     async fn test_relief_register_read_only_logical_name() {
         let reg = ReliefRegister::with_default_obis();
         let result = reg
-            .set_attribute(1, DataObject::OctetString(vec![0, 0, 87, 0, 0, 1]), None)
+            .set_attribute(1, DataObject::OctetString(vec![0, 0, 87, 0, 0, 1]), None, None)
             .await;
         assert!(result.is_err());
     }
@@ -525,21 +531,21 @@ mod tests {
     #[tokio::test]
     async fn test_relief_register_read_only_status() {
         let reg = ReliefRegister::with_default_obis();
-        let result = reg.set_attribute(5, DataObject::Enumerate(1), None).await;
+        let result = reg.set_attribute(5, DataObject::Enumerate(1), None, None).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_relief_register_invalid_attribute() {
         let reg = ReliefRegister::with_default_obis();
-        let result = reg.get_attribute(99, None).await;
+        let result = reg.get_attribute(99, None, None).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_relief_register_invalid_method() {
         let reg = ReliefRegister::with_default_obis();
-        let result = reg.invoke_method(1, None, None).await;
+        let result = reg.invoke_method(1, None, None, None).await;
         assert!(result.is_err());
     }
 

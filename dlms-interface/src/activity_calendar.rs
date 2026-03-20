@@ -537,7 +537,9 @@ impl CosemObject for ActivityCalendar {
         &self,
         attribute_id: u8,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<DataObject> {
+        crate::enforce_attribute_read(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Ok(DataObject::OctetString(self.logical_name.to_bytes().to_vec()))
@@ -586,7 +588,9 @@ impl CosemObject for ActivityCalendar {
         attribute_id: u8,
         value: DataObject,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<()> {
+        crate::enforce_attribute_write(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Err(DlmsError::AccessDenied(
@@ -748,7 +752,9 @@ impl CosemObject for ActivityCalendar {
         method_id: u8,
         _parameters: Option<DataObject>,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<Option<DataObject>> {
+        crate::enforce_method_execute(ctx, self.class_id(), self.obis_code(), method_id).await?;
         match method_id {
             Self::METHOD_ACTIVATE_PASSIVE_CALENDAR => {
                 self.activate_passive_calendar().await?;
@@ -997,7 +1003,7 @@ mod tests {
     #[tokio::test]
     async fn test_activity_calendar_get_logical_name() {
         let calendar = ActivityCalendar::with_default_obis();
-        let result = calendar.get_attribute(1, None).await.unwrap();
+        let result = calendar.get_attribute(1, None, None).await.unwrap();
 
         match result {
             DataObject::OctetString(bytes) => {
@@ -1012,7 +1018,7 @@ mod tests {
         let calendar = ActivityCalendar::with_default_obis();
         calendar.set_active_calendar_name("Summer".to_string()).await;
 
-        let result = calendar.get_attribute(2, None).await.unwrap();
+        let result = calendar.get_attribute(2, None, None).await.unwrap();
         match result {
             DataObject::OctetString(bytes) => {
                 assert_eq!(bytes, b"Summer".to_vec());
@@ -1028,7 +1034,7 @@ mod tests {
         let profile = SeasonProfile::new(date, 6, 15, DayId::NormalWorkingDay);
         calendar.add_active_season_profile(profile).await.unwrap();
 
-        let result = calendar.get_attribute(3, None).await.unwrap();
+        let result = calendar.get_attribute(3, None, None).await.unwrap();
         match result {
             DataObject::Array(arr) => {
                 assert_eq!(arr.len(), 1);
@@ -1043,7 +1049,7 @@ mod tests {
         let profile = WeekProfile::new(1, 1, 2, 3, 4, 5, 6, 7);
         calendar.add_active_week_profile(profile).await;
 
-        let result = calendar.get_attribute(4, None).await.unwrap();
+        let result = calendar.get_attribute(4, None, None).await.unwrap();
         match result {
             DataObject::Array(arr) => {
                 assert_eq!(arr.len(), 1);
@@ -1058,7 +1064,7 @@ mod tests {
         let profile = DayProfile::new(1, 5);
         calendar.add_active_day_profile(profile).await;
 
-        let result = calendar.get_attribute(5, None).await.unwrap();
+        let result = calendar.get_attribute(5, None, None).await.unwrap();
         match result {
             DataObject::Array(arr) => {
                 assert_eq!(arr.len(), 1);
@@ -1071,7 +1077,7 @@ mod tests {
     async fn test_activity_calendar_set_calendar_name() {
         let calendar = ActivityCalendar::with_default_obis();
         calendar
-            .set_attribute(2, DataObject::OctetString(b"Winter".to_vec()), None)
+            .set_attribute(2, DataObject::OctetString(b"Winter".to_vec()), None, None)
             .await
             .unwrap();
 
@@ -1091,7 +1097,7 @@ mod tests {
         ]);
 
         calendar
-            .set_attribute(3, DataObject::Array(vec![profile_data]), None)
+            .set_attribute(3, DataObject::Array(vec![profile_data]), None, None)
             .await
             .unwrap();
 
@@ -1108,7 +1114,7 @@ mod tests {
         calendar.add_active_season_profile(profile).await.unwrap();
 
         calendar
-            .set_attribute(3, DataObject::Null, None)
+            .set_attribute(3, DataObject::Null, None, None)
             .await
             .unwrap();
 
@@ -1119,7 +1125,7 @@ mod tests {
     async fn test_activity_calendar_read_only_logical_name() {
         let calendar = ActivityCalendar::with_default_obis();
         let result = calendar
-            .set_attribute(1, DataObject::OctetString(vec![0, 0, 13, 0, 0, 1]), None)
+            .set_attribute(1, DataObject::OctetString(vec![0, 0, 13, 0, 0, 1]), None, None)
             .await;
         assert!(result.is_err());
     }
@@ -1129,7 +1135,7 @@ mod tests {
         let calendar = ActivityCalendar::with_default_obis();
         calendar.set_passive_calendar_name("Activated".to_string()).await;
 
-        let result = calendar.invoke_method(1, None, None).await.unwrap();
+        let result = calendar.invoke_method(1, None, None, None).await.unwrap();
         assert!(result.is_none());
 
         assert_eq!(calendar.active_calendar_name().await, "Activated");
@@ -1138,14 +1144,14 @@ mod tests {
     #[tokio::test]
     async fn test_activity_calendar_invalid_attribute() {
         let calendar = ActivityCalendar::with_default_obis();
-        let result = calendar.get_attribute(99, None).await;
+        let result = calendar.get_attribute(99, None, None).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_activity_calendar_invalid_method() {
         let calendar = ActivityCalendar::with_default_obis();
-        let result = calendar.invoke_method(99, None, None).await;
+        let result = calendar.invoke_method(99, None, None, None).await;
         assert!(result.is_err());
     }
 }

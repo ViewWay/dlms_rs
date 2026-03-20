@@ -246,7 +246,9 @@ impl CosemObject for Charge {
         &self,
         attribute_id: u8,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<DataObject> {
+        crate::enforce_attribute_read(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Ok(DataObject::OctetString(self.logical_name.to_bytes().to_vec()))
@@ -284,7 +286,9 @@ impl CosemObject for Charge {
         attribute_id: u8,
         value: DataObject,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<()> {
+        crate::enforce_attribute_write(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Err(DlmsError::AccessDenied(
@@ -382,7 +386,9 @@ impl CosemObject for Charge {
         method_id: u8,
         _parameters: Option<DataObject>,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<Option<DataObject>> {
+        crate::enforce_method_execute(ctx, self.class_id(), self.obis_code(), method_id).await?;
         Err(DlmsError::InvalidData(format!(
             "Charge has no method {}",
             method_id
@@ -517,21 +523,21 @@ mod tests {
         let c = Charge::with_default_obis();
 
         // Test total_amount_charged
-        let result = c.get_attribute(2, None).await.unwrap();
+        let result = c.get_attribute(2, None, None).await.unwrap();
         match result {
             DataObject::Integer64(amount) => assert_eq!(amount, 0),
             _ => panic!("Expected Integer64"),
         }
 
         // Test charge_type
-        let result = c.get_attribute(3, None).await.unwrap();
+        let result = c.get_attribute(3, None, None).await.unwrap();
         match result {
             DataObject::Enumerate(ctype) => assert_eq!(ctype, 0), // Fixed
             _ => panic!("Expected Enumerate"),
         }
 
         // Test active
-        let result = c.get_attribute(8, None).await.unwrap();
+        let result = c.get_attribute(8, None, None).await.unwrap();
         match result {
             DataObject::Boolean(active) => assert!(!active),
             _ => panic!("Expected Boolean"),
@@ -542,17 +548,17 @@ mod tests {
     async fn test_charge_set_attributes() {
         let c = Charge::with_default_obis();
 
-        c.set_attribute(2, DataObject::Integer64(500), None)
+        c.set_attribute(2, DataObject::Integer64(500), None, None)
             .await
             .unwrap();
         assert_eq!(c.total_amount_charged().await, 500);
 
-        c.set_attribute(7, DataObject::Integer32(100), None)
+        c.set_attribute(7, DataObject::Integer32(100), None, None)
             .await
             .unwrap();
         assert_eq!(c.charge_per_unit().await, 100);
 
-        c.set_attribute(8, DataObject::Boolean(true), None)
+        c.set_attribute(8, DataObject::Boolean(true), None, None)
             .await
             .unwrap();
         assert!(c.is_active().await);
@@ -562,7 +568,7 @@ mod tests {
     async fn test_charge_read_only_logical_name() {
         let c = Charge::with_default_obis();
         let result = c
-            .set_attribute(1, DataObject::OctetString(vec![0, 0, 62, 0, 0, 1]), None)
+            .set_attribute(1, DataObject::OctetString(vec![0, 0, 62, 0, 0, 1]), None, None)
             .await;
         assert!(result.is_err());
     }
@@ -570,14 +576,14 @@ mod tests {
     #[tokio::test]
     async fn test_charge_invalid_attribute() {
         let c = Charge::with_default_obis();
-        let result = c.get_attribute(99, None).await;
+        let result = c.get_attribute(99, None, None).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_charge_invalid_method() {
         let c = Charge::with_default_obis();
-        let result = c.invoke_method(1, None, None).await;
+        let result = c.invoke_method(1, None, None, None).await;
         assert!(result.is_err());
     }
 }

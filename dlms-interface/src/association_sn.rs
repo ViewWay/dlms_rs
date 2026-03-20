@@ -11,7 +11,10 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use crate::{
-    CosemObject, AccessRight, AccessMode, UserInfo,
+    association_access::{
+        AssociationAccessResolver, AssociationObjectListEntry, UserAccessEntry,
+    },
+    AccessMode, CosemObject, UserInfo,
 };
 
 /// Short Name (SN) type for SN addressing
@@ -40,8 +43,8 @@ pub struct AssociationSn {
     /// List of short names accessible through this association
     object_list: Arc<RwLock<Vec<ShortName>>>,
 
-    /// Access rights list (user_id -> rights mapping)
-    access_rights_list: Arc<RwLock<Vec<AccessRight>>>,
+    /// Per-user access overlays (grants keyed by class id + logical name)
+    access_rights_list: Arc<RwLock<Vec<UserAccessEntry>>>,
 
     /// Reference to the Security Setup object
     security_setup_reference: ObisCode,
@@ -129,32 +132,60 @@ impl AssociationSn {
         list.contains(&short_name)
     }
 
-    /// Add an access right entry
-    pub async fn add_access_right(&self, access_right: AccessRight) {
+    /// Resolver for this association object (class 12, `logical_name`) with user overlays.
+    pub fn local_access_resolver(&self) -> AssociationAccessResolver {
+        let baseline = AssociationObjectListEntry::new(Self::CLASS_ID, self.logical_name, 0);
+        AssociationAccessResolver::new(
+            Arc::new(RwLock::new(vec![baseline])),
+            self.access_rights_list.clone(),
+        )
+    }
+
+    /// Add or replace per-user access entry
+    pub async fn add_access_right(&self, access_right: UserAccessEntry) {
         let mut list = self.access_rights_list.write().await;
-        // Remove existing entry for the same user
         list.retain(|ar| ar.user_id != access_right.user_id);
         list.push(access_right);
     }
 
     /// Get access rights for a specific user
-    pub async fn get_access_rights(&self, user_id: u8) -> Option<AccessRight> {
+    pub async fn get_access_rights(&self, user_id: u8) -> Option<UserAccessEntry> {
         let list = self.access_rights_list.read().await;
         list.iter().find(|ar| ar.user_id == user_id).cloned()
     }
 
-    /// Check if a user has access to an attribute
+    /// Check if a user has access to an attribute of this association object.
     pub async fn can_access_attribute(
         &self,
         user_id: u8,
         attribute_id: u8,
         mode: AccessMode,
+        authenticated: bool,
     ) -> bool {
-        if let Some(rights) = self.get_access_rights(user_id).await {
-            rights.can_access_attribute(attribute_id, mode)
-        } else {
-            false
-        }
+        let r = self.local_access_resolver();
+        let read_ok = !mode.can_read()
+            || r
+                .require_attribute_read(
+                    Some(user_id),
+                    authenticated,
+                    Self::CLASS_ID,
+                    self.logical_name,
+                    attribute_id,
+                )
+                .await
+                .is_ok();
+        let write_ok = !mode.can_write()
+            || r
+                .require_attribute_write(
+                    Some(user_id),
+                    authenticated,
+                    Self::CLASS_ID,
+                    self.logical_name,
+                    attribute_id,
+                )
+                .await
+                .is_ok();
+        read_ok && write_ok
     }
 
     /// Add a user to the user list
@@ -236,25 +267,32 @@ impl AssociationSn {
             let mut ar_fields = Vec::new();
             ar_fields.push(DataObject::Unsigned8(ar.user_id));
 
-            // Attribute rights: array of [attribute_id, access_mode]
-            let mut attr_rights = Vec::new();
-            for (attr_id, mode) in &ar.attribute_rights {
-                let mut pair = Vec::new();
-                pair.push(DataObject::Unsigned8(*attr_id));
-                pair.push(DataObject::Unsigned8(mode.value()));
-                attr_rights.push(DataObject::Structure(pair));
+            let mut grants = Vec::new();
+            for g in &ar.object_grants {
+                let ver = g.version.unwrap_or(0xFF);
+                let mut attr_rights = Vec::new();
+                for (attr_id, mode) in &g.attribute_access {
+                    attr_rights.push(DataObject::Structure(vec![
+                        DataObject::Unsigned8(*attr_id),
+                        DataObject::Unsigned8(mode.value()),
+                    ]));
+                }
+                let mut method_rights = Vec::new();
+                for (method_id, mode) in &g.method_access {
+                    method_rights.push(DataObject::Structure(vec![
+                        DataObject::Unsigned8(*method_id),
+                        DataObject::Unsigned8(mode.value()),
+                    ]));
+                }
+                grants.push(DataObject::Structure(vec![
+                    DataObject::Unsigned16(g.class_id),
+                    DataObject::OctetString(g.logical_name.to_bytes().to_vec()),
+                    DataObject::Unsigned8(ver),
+                    DataObject::Array(attr_rights),
+                    DataObject::Array(method_rights),
+                ]));
             }
-            ar_fields.push(DataObject::Array(attr_rights));
-
-            // Method rights: array of [method_id, access_mode]
-            let mut method_rights = Vec::new();
-            for (method_id, mode) in &ar.method_rights {
-                let mut pair = Vec::new();
-                pair.push(DataObject::Unsigned8(*method_id));
-                pair.push(DataObject::Unsigned8(mode.value()));
-                method_rights.push(DataObject::Structure(pair));
-            }
-            ar_fields.push(DataObject::Array(method_rights));
+            ar_fields.push(DataObject::Array(grants));
 
             rights.push(DataObject::Structure(ar_fields));
         }
@@ -299,6 +337,7 @@ impl CosemObject for AssociationSn {
         &self,
         attribute_id: u8,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        _ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<DataObject> {
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
@@ -338,6 +377,7 @@ impl CosemObject for AssociationSn {
         attribute_id: u8,
         value: DataObject,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        _ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<()> {
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
@@ -423,6 +463,7 @@ impl CosemObject for AssociationSn {
         method_id: u8,
         _parameters: Option<DataObject>,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        _ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<Option<DataObject>> {
         match method_id {
             // Association SN typically doesn't have methods in the standard
@@ -437,6 +478,7 @@ impl CosemObject for AssociationSn {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::association_access::UserObjectAccessGrant;
 
     #[tokio::test]
     async fn test_association_sn_class_id() {
@@ -499,20 +541,26 @@ mod tests {
     #[tokio::test]
     async fn test_association_sn_access_rights() {
         let assoc = AssociationSn::with_default_obis(1, 16);
-        let mut rights = AccessRight::new(1);
-        rights.add_attribute_right(2, AccessMode::ReadWrite);
-
-        assoc.add_access_right(rights).await;
+        let ln = assoc.logical_name;
+        let mut grant = UserObjectAccessGrant::new(12, ln);
+        grant.add_attribute_right(2, AccessMode::ReadWrite);
+        let mut ue = UserAccessEntry::new(1);
+        ue.add_object_grant(grant);
+        assoc.add_access_right(ue).await;
 
         let retrieved = assoc.get_access_rights(1).await;
         assert!(retrieved.is_some());
-        assert!(retrieved.unwrap().can_access_attribute(2, AccessMode::ReadWrite));
+        assert!(
+            assoc
+                .can_access_attribute(1, 2, AccessMode::ReadWrite, false)
+                .await
+        );
     }
 
     #[tokio::test]
     async fn test_association_sn_get_logical_name() {
         let assoc = AssociationSn::with_default_obis(1, 16);
-        let result = assoc.get_attribute(1, None).await.unwrap();
+        let result = assoc.get_attribute(1, None, None).await.unwrap();
 
         match result {
             DataObject::OctetString(bytes) => {
@@ -527,8 +575,8 @@ mod tests {
     async fn test_association_sn_get_sap() {
         let assoc = AssociationSn::with_default_obis(100, 1);
 
-        let client_result = assoc.get_attribute(6, None).await.unwrap();
-        let server_result = assoc.get_attribute(7, None).await.unwrap();
+        let client_result = assoc.get_attribute(6, None, None).await.unwrap();
+        let server_result = assoc.get_attribute(7, None, None).await.unwrap();
 
         match client_result {
             DataObject::Unsigned16(sap) => assert_eq!(sap, 100),

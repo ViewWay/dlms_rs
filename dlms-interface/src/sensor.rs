@@ -289,7 +289,9 @@ impl CosemObject for Sensor {
         &self,
         attribute_id: u8,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<DataObject> {
+        crate::enforce_attribute_read(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Ok(DataObject::OctetString(self.logical_name.to_bytes().to_vec()))
@@ -321,7 +323,9 @@ impl CosemObject for Sensor {
         attribute_id: u8,
         value: DataObject,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<()> {
+        crate::enforce_attribute_write(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Err(DlmsError::AccessDenied(
@@ -435,7 +439,9 @@ impl CosemObject for Sensor {
         method_id: u8,
         _parameters: Option<DataObject>,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<Option<DataObject>> {
+        crate::enforce_method_execute(ctx, self.class_id(), self.obis_code(), method_id).await?;
         Err(DlmsError::InvalidData(format!(
             "Sensor has no method {}",
             method_id
@@ -611,14 +617,14 @@ mod tests {
         let sensor = Sensor::with_default_obis();
 
         // Test value
-        let result = sensor.get_attribute(2, None).await.unwrap();
+        let result = sensor.get_attribute(2, None, None).await.unwrap();
         match result {
             DataObject::Float64(v) => assert_eq!(v, 0.0),
             _ => panic!("Expected Float64"),
         }
 
         // Test sensor_status
-        let result = sensor.get_attribute(4, None).await.unwrap();
+        let result = sensor.get_attribute(4, None, None).await.unwrap();
         match result {
             DataObject::Enumerate(status) => assert_eq!(status, 0), // Ok
             _ => panic!("Expected Enumerate"),
@@ -629,12 +635,12 @@ mod tests {
     async fn test_sensor_set_attributes() {
         let sensor = Sensor::with_default_obis();
 
-        sensor.set_attribute(2, DataObject::Float64(42.5), None)
+        sensor.set_attribute(2, DataObject::Float64(42.5), None, None)
             .await
             .unwrap();
         assert_eq!(sensor.value().await, 42.5);
 
-        sensor.set_attribute(3, DataObject::OctetString(b"kWh".to_vec()), None)
+        sensor.set_attribute(3, DataObject::OctetString(b"kWh".to_vec()), None, None)
             .await
             .unwrap();
         assert_eq!(sensor.unit().await, "kWh");
@@ -643,7 +649,7 @@ mod tests {
     #[tokio::test]
     async fn test_sensor_set_value_from_integer() {
         let sensor = Sensor::with_default_obis();
-        sensor.set_attribute(2, DataObject::Integer32(100), None)
+        sensor.set_attribute(2, DataObject::Integer32(100), None, None)
             .await
             .unwrap();
         assert_eq!(sensor.value().await, 100.0);
@@ -652,7 +658,7 @@ mod tests {
     #[tokio::test]
     async fn test_sensor_set_value_from_unsigned() {
         let sensor = Sensor::with_default_obis();
-        sensor.set_attribute(2, DataObject::Unsigned16(50), None)
+        sensor.set_attribute(2, DataObject::Unsigned16(50), None, None)
             .await
             .unwrap();
         assert_eq!(sensor.value().await, 50.0);
@@ -661,10 +667,10 @@ mod tests {
     #[tokio::test]
     async fn test_sensor_set_min_max_value() {
         let sensor = Sensor::with_default_obis();
-        sensor.set_attribute(5, DataObject::Float64(10.0), None)
+        sensor.set_attribute(5, DataObject::Float64(10.0), None, None)
             .await
             .unwrap();
-        sensor.set_attribute(6, DataObject::Float64(100.0), None)
+        sensor.set_attribute(6, DataObject::Float64(100.0), None, None)
             .await
             .unwrap();
         assert_eq!(sensor.min_value().await, 10.0);
@@ -674,10 +680,10 @@ mod tests {
     #[tokio::test]
     async fn test_sensor_set_min_max_from_float32() {
         let sensor = Sensor::with_default_obis();
-        sensor.set_attribute(5, DataObject::Float32(5.0), None)
+        sensor.set_attribute(5, DataObject::Float32(5.0), None, None)
             .await
             .unwrap();
-        sensor.set_attribute(6, DataObject::Float32(95.0), None)
+        sensor.set_attribute(6, DataObject::Float32(95.0), None, None)
             .await
             .unwrap();
         assert_eq!(sensor.min_value().await, 5.0);
@@ -688,7 +694,7 @@ mod tests {
     async fn test_sensor_read_only_logical_name() {
         let sensor = Sensor::with_default_obis();
         let result = sensor
-            .set_attribute(1, DataObject::OctetString(vec![0, 0, 102, 0, 0, 1]), None)
+            .set_attribute(1, DataObject::OctetString(vec![0, 0, 102, 0, 0, 1]), None, None)
             .await;
         assert!(result.is_err());
     }
@@ -696,14 +702,14 @@ mod tests {
     #[tokio::test]
     async fn test_sensor_invalid_attribute() {
         let sensor = Sensor::with_default_obis();
-        let result = sensor.get_attribute(99, None).await;
+        let result = sensor.get_attribute(99, None, None).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_sensor_invalid_method() {
         let sensor = Sensor::with_default_obis();
-        let result = sensor.invoke_method(1, None, None).await;
+        let result = sensor.invoke_method(1, None, None, None).await;
         assert!(result.is_err());
     }
 
@@ -717,10 +723,10 @@ mod tests {
     #[tokio::test]
     async fn test_sensor_set_min_max_from_integer() {
         let sensor = Sensor::with_default_obis();
-        sensor.set_attribute(5, DataObject::Integer32(-100), None)
+        sensor.set_attribute(5, DataObject::Integer32(-100), None, None)
             .await
             .unwrap();
-        sensor.set_attribute(6, DataObject::Integer32(100), None)
+        sensor.set_attribute(6, DataObject::Integer32(100), None, None)
             .await
             .unwrap();
         assert_eq!(sensor.min_value().await, -100.0);

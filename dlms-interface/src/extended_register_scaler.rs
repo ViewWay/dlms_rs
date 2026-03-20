@@ -88,7 +88,9 @@ impl CosemObject for ExtendedRegisterScaler {
         &self,
         attribute_id: u8,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<DataObject> {
+        crate::enforce_attribute_read(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             1 => Ok(DataObject::OctetString(self.logical_name.to_bytes().to_vec())),
             2 => Ok(DataObject::Integer64(self.value().await)),
@@ -106,7 +108,9 @@ impl CosemObject for ExtendedRegisterScaler {
         attribute_id: u8,
         value: DataObject,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<()> {
+        crate::enforce_attribute_write(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             1 => Err(DlmsError::AccessDenied("Attribute 1 is read-only".to_string())),
             2 => match value {
@@ -142,7 +146,9 @@ impl CosemObject for ExtendedRegisterScaler {
         method_id: u8,
         _parameters: Option<DataObject>,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<Option<DataObject>> {
+        crate::enforce_method_execute(ctx, self.class_id(), self.obis_code(), method_id).await?;
         Err(DlmsError::InvalidData(format!(
             "ExtendedRegisterScaler has no method {}",
             method_id

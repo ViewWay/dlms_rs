@@ -243,7 +243,9 @@ impl CosemObject for IecTwistedPairSetup {
         &self,
         attribute_id: u8,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<DataObject> {
+        crate::enforce_attribute_read(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Ok(DataObject::OctetString(self.logical_name.to_bytes().to_vec()))
@@ -275,7 +277,9 @@ impl CosemObject for IecTwistedPairSetup {
         attribute_id: u8,
         value: DataObject,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<()> {
+        crate::enforce_attribute_write(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Err(DlmsError::AccessDenied(
@@ -340,7 +344,9 @@ impl CosemObject for IecTwistedPairSetup {
         method_id: u8,
         _parameters: Option<DataObject>,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<Option<DataObject>> {
+        crate::enforce_method_execute(ctx, self.class_id(), self.obis_code(), method_id).await?;
         Err(DlmsError::InvalidData(format!(
             "IEC Twisted Pair Setup has no method {}",
             method_id
@@ -438,7 +444,7 @@ mod tests {
     #[tokio::test]
     async fn test_iec_twisted_pair_setup_get_logical_name() {
         let setup = IecTwistedPairSetup::with_default_obis();
-        let result = setup.get_attribute(1, None).await.unwrap();
+        let result = setup.get_attribute(1, None, None).await.unwrap();
 
         match result {
             DataObject::OctetString(bytes) => {
@@ -451,7 +457,7 @@ mod tests {
     #[tokio::test]
     async fn test_iec_twisted_pair_setup_get_communication_speed() {
         let setup = IecTwistedPairSetup::with_default_obis();
-        let result = setup.get_attribute(2, None).await.unwrap();
+        let result = setup.get_attribute(2, None, None).await.unwrap();
         assert_eq!(result, DataObject::Unsigned32(2400));
     }
 
@@ -459,7 +465,7 @@ mod tests {
     async fn test_iec_twisted_pair_setup_set_communication_speed_via_attribute() {
         let setup = IecTwistedPairSetup::with_default_obis();
         setup
-            .set_attribute(2, DataObject::Unsigned32(9600), None)
+            .set_attribute(2, DataObject::Unsigned32(9600), None, None)
             .await
             .unwrap();
         assert_eq!(setup.communication_speed().await, 9600);
@@ -469,7 +475,7 @@ mod tests {
     async fn test_iec_twisted_pair_setup_set_mode_via_attribute() {
         let setup = IecTwistedPairSetup::with_default_obis();
         setup
-            .set_attribute(3, DataObject::Enumerate(2), None)
+            .set_attribute(3, DataObject::Enumerate(2), None, None)
             .await
             .unwrap();
         assert_eq!(setup.mode().await, CommunicationMode::Mode2);
@@ -478,14 +484,14 @@ mod tests {
     #[tokio::test]
     async fn test_iec_twisted_pair_setup_set_invalid_mode() {
         let setup = IecTwistedPairSetup::with_default_obis();
-        let result = setup.set_attribute(3, DataObject::Enumerate(99), None).await;
+        let result = setup.set_attribute(3, DataObject::Enumerate(99), None, None).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_iec_twisted_pair_setup_get_supported_speeds() {
         let setup = IecTwistedPairSetup::with_default_obis();
-        let result = setup.get_attribute(5, None).await.unwrap();
+        let result = setup.get_attribute(5, None, None).await.unwrap();
 
         match result {
             DataObject::Array(speeds) => {
@@ -499,7 +505,7 @@ mod tests {
     async fn test_iec_twisted_pair_setup_read_only_logical_name() {
         let setup = IecTwistedPairSetup::with_default_obis();
         let result = setup
-            .set_attribute(1, DataObject::OctetString(vec![0, 0, 25, 0, 0, 1]), None)
+            .set_attribute(1, DataObject::OctetString(vec![0, 0, 25, 0, 0, 1]), None, None)
             .await;
         assert!(result.is_err());
     }
@@ -512,6 +518,7 @@ mod tests {
                 5,
                 DataObject::Array(vec![DataObject::Unsigned32(2400)]),
                 None,
+                None,
             )
             .await;
         assert!(result.is_err());
@@ -520,14 +527,14 @@ mod tests {
     #[tokio::test]
     async fn test_iec_twisted_pair_setup_invalid_attribute() {
         let setup = IecTwistedPairSetup::with_default_obis();
-        let result = setup.get_attribute(99, None).await;
+        let result = setup.get_attribute(99, None, None).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_iec_twisted_pair_setup_invalid_method() {
         let setup = IecTwistedPairSetup::with_default_obis();
-        let result = setup.invoke_method(1, None, None).await;
+        let result = setup.invoke_method(1, None, None, None).await;
         assert!(result.is_err());
     }
 

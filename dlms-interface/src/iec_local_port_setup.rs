@@ -318,7 +318,9 @@ impl CosemObject for IecLocalPortSetup {
         &self,
         attribute_id: u8,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<DataObject> {
+        crate::enforce_attribute_read(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Ok(DataObject::OctetString(self.logical_name.to_bytes().to_vec()))
@@ -350,7 +352,9 @@ impl CosemObject for IecLocalPortSetup {
         attribute_id: u8,
         value: DataObject,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<()> {
+        crate::enforce_attribute_write(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Err(DlmsError::AccessDenied(
@@ -430,7 +434,9 @@ impl CosemObject for IecLocalPortSetup {
         method_id: u8,
         _parameters: Option<DataObject>,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<Option<DataObject>> {
+        crate::enforce_method_execute(ctx, self.class_id(), self.obis_code(), method_id).await?;
         Err(DlmsError::InvalidData(format!(
             "IEC Local Port Setup has no method {}",
             method_id
@@ -553,7 +559,7 @@ mod tests {
     #[tokio::test]
     async fn test_iec_local_port_setup_get_logical_name() {
         let setup = IecLocalPortSetup::with_default_obis();
-        let result = setup.get_attribute(1, None).await.unwrap();
+        let result = setup.get_attribute(1, None, None).await.unwrap();
 
         match result {
             DataObject::OctetString(bytes) => {
@@ -566,7 +572,7 @@ mod tests {
     #[tokio::test]
     async fn test_iec_local_port_setup_get_baud() {
         let setup = IecLocalPortSetup::with_default_obis();
-        let result = setup.get_attribute(2, None).await.unwrap();
+        let result = setup.get_attribute(2, None, None).await.unwrap();
         assert_eq!(result, DataObject::Unsigned32(9600));
     }
 
@@ -574,7 +580,7 @@ mod tests {
     async fn test_iec_local_port_setup_set_baud_via_attribute() {
         let setup = IecLocalPortSetup::with_default_obis();
         setup
-            .set_attribute(2, DataObject::Unsigned32(115200), None)
+            .set_attribute(2, DataObject::Unsigned32(115200), None, None)
             .await
             .unwrap();
         assert_eq!(setup.default_baud().await, BaudRate::B115200);
@@ -584,7 +590,7 @@ mod tests {
     async fn test_iec_local_port_setup_set_invalid_baud() {
         let setup = IecLocalPortSetup::with_default_obis();
         let result = setup
-            .set_attribute(2, DataObject::Unsigned16(12345), None)
+            .set_attribute(2, DataObject::Unsigned16(12345), None, None)
             .await;
         assert!(result.is_err());
     }
@@ -593,7 +599,7 @@ mod tests {
     async fn test_iec_local_port_setup_read_only_logical_name() {
         let setup = IecLocalPortSetup::with_default_obis();
         let result = setup
-            .set_attribute(1, DataObject::OctetString(vec![0, 0, 20, 0, 0, 1]), None)
+            .set_attribute(1, DataObject::OctetString(vec![0, 0, 20, 0, 0, 1]), None, None)
             .await;
         assert!(result.is_err());
     }
@@ -601,14 +607,14 @@ mod tests {
     #[tokio::test]
     async fn test_iec_local_port_setup_invalid_attribute() {
         let setup = IecLocalPortSetup::with_default_obis();
-        let result = setup.get_attribute(99, None).await;
+        let result = setup.get_attribute(99, None, None).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_iec_local_port_setup_invalid_method() {
         let setup = IecLocalPortSetup::with_default_obis();
-        let result = setup.invoke_method(1, None, None).await;
+        let result = setup.invoke_method(1, None, None, None).await;
         assert!(result.is_err());
     }
 

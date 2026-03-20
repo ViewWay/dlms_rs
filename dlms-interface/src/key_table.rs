@@ -281,7 +281,9 @@ impl CosemObject for KeyTable {
         &self,
         attribute_id: u8,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<DataObject> {
+        crate::enforce_attribute_read(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Ok(DataObject::OctetString(self.logical_name.to_bytes().to_vec()))
@@ -310,7 +312,9 @@ impl CosemObject for KeyTable {
         attribute_id: u8,
         value: DataObject,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<()> {
+        crate::enforce_attribute_write(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Err(DlmsError::AccessDenied(
@@ -377,7 +381,9 @@ impl CosemObject for KeyTable {
         method_id: u8,
         _parameters: Option<DataObject>,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<Option<DataObject>> {
+        crate::enforce_method_execute(ctx, self.class_id(), self.obis_code(), method_id).await?;
         Err(DlmsError::InvalidData(format!(
             "KeyTable has no method {}",
             method_id
@@ -549,21 +555,21 @@ mod tests {
         let kt = KeyTable::with_default_obis();
 
         // Test key_id
-        let result = kt.get_attribute(2, None).await.unwrap();
+        let result = kt.get_attribute(2, None, None).await.unwrap();
         match result {
             DataObject::Unsigned8(id) => assert_eq!(id, 0),
             _ => panic!("Expected Unsigned8"),
         }
 
         // Test key_version
-        let result = kt.get_attribute(3, None).await.unwrap();
+        let result = kt.get_attribute(3, None, None).await.unwrap();
         match result {
             DataObject::Unsigned16(version) => assert_eq!(version, 1),
             _ => panic!("Expected Unsigned16"),
         }
 
         // Test key_type
-        let result = kt.get_attribute(5, None).await.unwrap();
+        let result = kt.get_attribute(5, None, None).await.unwrap();
         match result {
             DataObject::Enumerate(key_type) => assert_eq!(key_type, 0), // Unspecified
             _ => panic!("Expected Enumerate"),
@@ -574,17 +580,17 @@ mod tests {
     async fn test_key_table_set_attributes() {
         let kt = KeyTable::with_default_obis();
 
-        kt.set_attribute(2, DataObject::Unsigned8(5), None)
+        kt.set_attribute(2, DataObject::Unsigned8(5), None, None)
             .await
             .unwrap();
         assert_eq!(kt.key_id().await, 5);
 
-        kt.set_attribute(3, DataObject::Unsigned16(10), None)
+        kt.set_attribute(3, DataObject::Unsigned16(10), None, None)
             .await
             .unwrap();
         assert_eq!(kt.key_version().await, 10);
 
-        kt.set_attribute(5, DataObject::Enumerate(1), None)
+        kt.set_attribute(5, DataObject::Enumerate(1), None, None)
             .await
             .unwrap();
         assert_eq!(kt.key_type().await, KeyType::Encryption);
@@ -593,7 +599,7 @@ mod tests {
     #[tokio::test]
     async fn test_key_table_set_key_version_u8() {
         let kt = KeyTable::with_default_obis();
-        kt.set_attribute(3, DataObject::Unsigned8(20), None)
+        kt.set_attribute(3, DataObject::Unsigned8(20), None, None)
             .await
             .unwrap();
         assert_eq!(kt.key_version().await, 20);
@@ -603,7 +609,7 @@ mod tests {
     async fn test_key_table_read_only_logical_name() {
         let kt = KeyTable::with_default_obis();
         let result = kt
-            .set_attribute(1, DataObject::OctetString(vec![0, 0, 101, 0, 0, 1]), None)
+            .set_attribute(1, DataObject::OctetString(vec![0, 0, 101, 0, 0, 1]), None, None)
             .await;
         assert!(result.is_err());
     }
@@ -611,14 +617,14 @@ mod tests {
     #[tokio::test]
     async fn test_key_table_invalid_attribute() {
         let kt = KeyTable::with_default_obis();
-        let result = kt.get_attribute(99, None).await;
+        let result = kt.get_attribute(99, None, None).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_key_table_invalid_method() {
         let kt = KeyTable::with_default_obis();
-        let result = kt.invoke_method(1, None, None).await;
+        let result = kt.invoke_method(1, None, None, None).await;
         assert!(result.is_err());
     }
 

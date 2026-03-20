@@ -254,7 +254,9 @@ impl CosemObject for Tariff {
         &self,
         attribute_id: u8,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<DataObject> {
+        crate::enforce_attribute_read(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Ok(DataObject::OctetString(self.logical_name.to_bytes().to_vec()))
@@ -298,7 +300,9 @@ impl CosemObject for Tariff {
         attribute_id: u8,
         value: DataObject,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<()> {
+        crate::enforce_attribute_write(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Err(DlmsError::AccessDenied(
@@ -405,7 +409,9 @@ impl CosemObject for Tariff {
         method_id: u8,
         _parameters: Option<DataObject>,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<Option<DataObject>> {
+        crate::enforce_method_execute(ctx, self.class_id(), self.obis_code(), method_id).await?;
         Err(DlmsError::InvalidData(format!(
             "Tariff has no method {}",
             method_id
@@ -526,14 +532,14 @@ mod tests {
         let tariff = Tariff::with_default_obis();
 
         // Test tariff_type
-        let result = tariff.get_attribute(6, None).await.unwrap();
+        let result = tariff.get_attribute(6, None, None).await.unwrap();
         match result {
             DataObject::Enumerate(tt) => assert_eq!(tt, 0), // Fixed
             _ => panic!("Expected Enumerate"),
         }
 
         // Test unit_price
-        let result = tariff.get_attribute(4, None).await.unwrap();
+        let result = tariff.get_attribute(4, None, None).await.unwrap();
         match result {
             DataObject::Integer64(price) => assert_eq!(price, 0),
             _ => panic!("Expected Integer64"),
@@ -544,12 +550,12 @@ mod tests {
     async fn test_tariff_set_attributes() {
         let tariff = Tariff::with_default_obis();
 
-        tariff.set_attribute(2, DataObject::OctetString(b"TARIFF-A".to_vec()), None)
+        tariff.set_attribute(2, DataObject::OctetString(b"TARIFF-A".to_vec()), None, None)
             .await
             .unwrap();
         assert_eq!(tariff.tariff_id().await, "TARIFF-A");
 
-        tariff.set_attribute(4, DataObject::Integer64(200), None)
+        tariff.set_attribute(4, DataObject::Integer64(200), None, None)
             .await
             .unwrap();
         assert_eq!(tariff.unit_price().await, 200);
@@ -559,7 +565,7 @@ mod tests {
     async fn test_tariff_read_only_logical_name() {
         let tariff = Tariff::with_default_obis();
         let result = tariff
-            .set_attribute(1, DataObject::OctetString(vec![0, 0, 65, 0, 0, 1]), None)
+            .set_attribute(1, DataObject::OctetString(vec![0, 0, 65, 0, 0, 1]), None, None)
             .await;
         assert!(result.is_err());
     }
@@ -567,14 +573,14 @@ mod tests {
     #[tokio::test]
     async fn test_tariff_invalid_attribute() {
         let tariff = Tariff::with_default_obis();
-        let result = tariff.get_attribute(99, None).await;
+        let result = tariff.get_attribute(99, None, None).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_tariff_invalid_method() {
         let tariff = Tariff::with_default_obis();
-        let result = tariff.invoke_method(1, None, None).await;
+        let result = tariff.invoke_method(1, None, None, None).await;
         assert!(result.is_err());
     }
 }

@@ -215,7 +215,7 @@
 //!
 //! async fn read_object(object: &dyn CosemObject) -> Result<DataObject, Error> {
 //!     // Read attribute 2 (value)
-//!     object.get_attribute(2, None).await
+//!     object.get_attribute(2, None, None).await
 //! }
 //! ```
 //!
@@ -368,6 +368,7 @@ pub mod register;
 pub mod register_activation;
 pub mod special_days_table;
 pub mod descriptor;
+pub mod association_access;
 pub mod clock;
 pub mod profile_generic;
 pub mod extended_register;
@@ -460,10 +461,20 @@ pub use image_transfer::{
     ImageTransfer, ImageTransferStatus, ImageInfo,
 };
 pub use descriptor::{
-    CosemObjectDescriptor, AccessRight, AccessMode,
+    CosemObjectDescriptor, AccessMode,
     AttributeDescriptor, MethodDescriptor, UserInfo,
     CaptureObjectDefinition, ProfileEntry, SortMethod,
     ObisCodeExt,
+};
+pub use association_access::{
+    AssociationAccessResolver,
+    AssociationObjectListEntry,
+    CosemInvocationContext,
+    UserAccessEntry,
+    UserObjectAccessGrant,
+    enforce_attribute_read,
+    enforce_attribute_write,
+    enforce_method_execute,
 };
 pub use association_ln::AssociationLn;
 pub use association_sn::{AssociationSn, ShortName};
@@ -546,6 +557,7 @@ pub trait CosemObject: Send + Sync {
         &self,
         attribute_id: u8,
         selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<DataObject>;
 
     /// Set an attribute value
@@ -562,6 +574,7 @@ pub trait CosemObject: Send + Sync {
         attribute_id: u8,
         value: DataObject,
         selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<()>;
 
     /// Invoke a method
@@ -578,5 +591,6 @@ pub trait CosemObject: Send + Sync {
         method_id: u8,
         parameters: Option<DataObject>,
         selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<Option<DataObject>>;
 }

@@ -130,7 +130,9 @@ impl CosemObject for SecuritySetup {
         &self,
         attribute_id: u8,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<DataObject> {
+        crate::enforce_attribute_read(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Ok(DataObject::OctetString(self.logical_name.to_bytes().to_vec()))
@@ -173,7 +175,9 @@ impl CosemObject for SecuritySetup {
         attribute_id: u8,
         value: DataObject,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<()> {
+        crate::enforce_attribute_write(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 // Logical name is typically read-only
@@ -248,7 +252,9 @@ impl CosemObject for SecuritySetup {
         method_id: u8,
         _parameters: Option<DataObject>,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<Option<DataObject>> {
+        crate::enforce_method_execute(ctx, self.class_id(), self.obis_code(), method_id).await?;
         match method_id {
             // Security Setup typically doesn't have methods in the standard
             _ => Err(DlmsError::InvalidData(format!(
@@ -278,7 +284,7 @@ mod tests {
     #[tokio::test]
     async fn test_security_setup_get_logical_name() {
         let setup = SecuritySetup::with_default_obis();
-        let result = setup.get_attribute(1, None).await.unwrap();
+        let result = setup.get_attribute(1, None, None).await.unwrap();
 
         match result {
             DataObject::OctetString(bytes) => {
@@ -320,7 +326,7 @@ mod tests {
         use dlms_security::SecurityPolicy;
 
         let setup = SecuritySetup::with_default_obis();
-        let result = setup.get_attribute(5, None).await.unwrap();
+        let result = setup.get_attribute(5, None, None).await.unwrap();
 
         match result {
             DataObject::Unsigned8(policy_id) => {
@@ -338,7 +344,7 @@ mod tests {
             .unwrap();
 
         let setup = SecuritySetup::new(SecuritySetup::default_obis(), suite);
-        let result = setup.get_attribute(6, None).await.unwrap();
+        let result = setup.get_attribute(6, None, None).await.unwrap();
 
         match result {
             DataObject::OctetString(bytes) => {
@@ -351,7 +357,7 @@ mod tests {
     #[tokio::test]
     async fn test_security_setup_get_security_suite_attribute() {
         let setup = SecuritySetup::with_default_obis();
-        let result = setup.get_attribute(2, None).await.unwrap();
+        let result = setup.get_attribute(2, None, None).await.unwrap();
 
         match result {
             DataObject::Structure(fields) => {

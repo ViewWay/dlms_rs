@@ -330,7 +330,9 @@ impl CosemObject for UtilityMeter {
         &self,
         attribute_id: u8,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<DataObject> {
+        crate::enforce_attribute_read(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Ok(DataObject::OctetString(self.logical_name.to_bytes().to_vec()))
@@ -374,7 +376,9 @@ impl CosemObject for UtilityMeter {
         attribute_id: u8,
         value: DataObject,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<()> {
+        crate::enforce_attribute_write(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Err(DlmsError::AccessDenied(
@@ -480,7 +484,9 @@ impl CosemObject for UtilityMeter {
         method_id: u8,
         _parameters: Option<DataObject>,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<Option<DataObject>> {
+        crate::enforce_method_execute(ctx, self.class_id(), self.obis_code(), method_id).await?;
         Err(DlmsError::InvalidData(format!(
             "UtilityMeter has no method {}",
             method_id
@@ -643,14 +649,14 @@ mod tests {
         let um = UtilityMeter::with_default_obis();
 
         // Test meter_type
-        let result = um.get_attribute(2, None).await.unwrap();
+        let result = um.get_attribute(2, None, None).await.unwrap();
         match result {
             DataObject::Enumerate(mt) => assert_eq!(mt, 0), // Electricity
             _ => panic!("Expected Enumerate"),
         }
 
         // Test current_reading
-        let result = um.get_attribute(3, None).await.unwrap();
+        let result = um.get_attribute(3, None, None).await.unwrap();
         match result {
             DataObject::Integer64(reading) => assert_eq!(reading, 0),
             _ => panic!("Expected Integer64"),
@@ -661,12 +667,12 @@ mod tests {
     async fn test_utility_meter_set_attributes() {
         let um = UtilityMeter::with_default_obis();
 
-        um.set_attribute(2, DataObject::Enumerate(2), None) // Water
+        um.set_attribute(2, DataObject::Enumerate(2), None, None) // Water
             .await
             .unwrap();
         assert_eq!(um.meter_type().await, UtilityMeterType::Water);
 
-        um.set_attribute(3, DataObject::Integer64(500), None)
+        um.set_attribute(3, DataObject::Integer64(500), None, None)
             .await
             .unwrap();
         assert_eq!(um.current_reading().await, 500);
@@ -676,7 +682,7 @@ mod tests {
     async fn test_utility_meter_read_only_logical_name() {
         let um = UtilityMeter::with_default_obis();
         let result = um
-            .set_attribute(1, DataObject::OctetString(vec![0, 0, 72, 0, 0, 1]), None)
+            .set_attribute(1, DataObject::OctetString(vec![0, 0, 72, 0, 0, 1]), None, None)
             .await;
         assert!(result.is_err());
     }
@@ -684,14 +690,14 @@ mod tests {
     #[tokio::test]
     async fn test_utility_meter_invalid_attribute() {
         let um = UtilityMeter::with_default_obis();
-        let result = um.get_attribute(99, None).await;
+        let result = um.get_attribute(99, None, None).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_utility_meter_invalid_method() {
         let um = UtilityMeter::with_default_obis();
-        let result = um.invoke_method(1, None, None).await;
+        let result = um.invoke_method(1, None, None, None).await;
         assert!(result.is_err());
     }
 }

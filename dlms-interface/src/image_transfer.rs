@@ -495,7 +495,9 @@ impl CosemObject for ImageTransfer {
         &self,
         attribute_id: u8,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<DataObject> {
+        crate::enforce_attribute_read(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Ok(DataObject::OctetString(self.logical_name.to_bytes().to_vec()))
@@ -538,7 +540,9 @@ impl CosemObject for ImageTransfer {
         attribute_id: u8,
         value: DataObject,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<()> {
+        crate::enforce_attribute_write(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Err(DlmsError::AccessDenied(
@@ -625,7 +629,9 @@ impl CosemObject for ImageTransfer {
         method_id: u8,
         parameters: Option<DataObject>,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<Option<DataObject>> {
+        crate::enforce_method_execute(ctx, self.class_id(), self.obis_code(), method_id).await?;
         match method_id {
             Self::METHOD_IMAGE_TRANSFORM_INITIATE => {
                 match parameters {
@@ -965,28 +971,28 @@ mod tests {
         let it = ImageTransfer::with_default_obis();
 
         // Test logical_name
-        let result = it.get_attribute(1, None).await.unwrap();
+        let result = it.get_attribute(1, None, None).await.unwrap();
         match result {
             DataObject::OctetString(bytes) => assert_eq!(bytes.len(), 6),
             _ => panic!("Expected OctetString"),
         }
 
         // Test image_size
-        let result = it.get_attribute(2, None).await.unwrap();
+        let result = it.get_attribute(2, None, None).await.unwrap();
         match result {
             DataObject::Unsigned32(size) => assert_eq!(size, 0),
             _ => panic!("Expected Unsigned32"),
         }
 
         // Test image_transfer_enabled
-        let result = it.get_attribute(5, None).await.unwrap();
+        let result = it.get_attribute(5, None, None).await.unwrap();
         match result {
             DataObject::Boolean(enabled) => assert!(enabled),
             _ => panic!("Expected Boolean"),
         }
 
         // Test image_transfer_status
-        let result = it.get_attribute(6, None).await.unwrap();
+        let result = it.get_attribute(6, None, None).await.unwrap();
         match result {
             DataObject::Enumerate(status) => assert_eq!(status, 5), // Idle
             _ => panic!("Expected Enumerate"),
@@ -997,17 +1003,17 @@ mod tests {
     async fn test_image_transfer_set_attributes() {
         let it = ImageTransfer::with_default_obis();
 
-        it.set_attribute(2, DataObject::Unsigned32(2048), None)
+        it.set_attribute(2, DataObject::Unsigned32(2048), None, None)
             .await
             .unwrap();
         assert_eq!(it.image_size().await, 2048);
 
-        it.set_attribute(5, DataObject::Boolean(false), None)
+        it.set_attribute(5, DataObject::Boolean(false), None, None)
             .await
             .unwrap();
         assert!(!it.is_transfer_enabled().await);
 
-        it.set_attribute(6, DataObject::Enumerate(1), None)
+        it.set_attribute(6, DataObject::Enumerate(1), None, None)
             .await
             .unwrap();
         assert_eq!(it.transfer_status().await, ImageTransferStatus::InProgress);
@@ -1017,7 +1023,7 @@ mod tests {
     async fn test_image_transfer_read_only_logical_name() {
         let it = ImageTransfer::with_default_obis();
         let result = it
-            .set_attribute(1, DataObject::OctetString(vec![0, 0, 18, 0, 0, 1]), None)
+            .set_attribute(1, DataObject::OctetString(vec![0, 0, 18, 0, 0, 1]), None, None)
             .await;
         assert!(result.is_err());
     }
@@ -1031,7 +1037,7 @@ mod tests {
             DataObject::OctetString(vec![0xAA, 0xBB]),
         ]);
 
-        it.set_attribute(7, info_data, None).await.unwrap();
+        it.set_attribute(7, info_data, None, None).await.unwrap();
 
         let info = it.image_to_activate_info().await;
         assert!(info.is_some());
@@ -1046,7 +1052,7 @@ mod tests {
             DataObject::OctetString(vec![1, 2, 3, 4]),
         ]);
 
-        it.invoke_method(1, Some(params), None).await.unwrap();
+        it.invoke_method(1, Some(params), None, None).await.unwrap();
         assert_eq!(it.image_size().await, 1024);
         assert_eq!(it.transfer_status().await, ImageTransferStatus::Initiated);
     }
@@ -1062,7 +1068,7 @@ mod tests {
             DataObject::OctetString(vec![0u8; 256]),
         ]);
 
-        it.invoke_method(2, Some(params), None).await.unwrap();
+        it.invoke_method(2, Some(params), None, None).await.unwrap();
         assert_eq!(it.image_transferred_blocks().await, 1);
     }
 
@@ -1076,7 +1082,7 @@ mod tests {
         let block = vec![1u8; 128];
         it.transfer_block(0, block).await.unwrap();
 
-        let result = it.invoke_method(3, None, None).await.unwrap();
+        let result = it.invoke_method(3, None, None, None).await.unwrap();
         match result {
             Some(DataObject::Boolean(verified)) => assert!(verified),
             _ => panic!("Expected Boolean result"),
@@ -1092,21 +1098,21 @@ mod tests {
         let block = vec![1u8; 128];
         it.transfer_block(0, block).await.unwrap();
 
-        it.invoke_method(4, None, None).await.unwrap();
+        it.invoke_method(4, None, None, None).await.unwrap();
         assert_eq!(it.transfer_status().await, ImageTransferStatus::Idle);
     }
 
     #[tokio::test]
     async fn test_image_transfer_invalid_attribute() {
         let it = ImageTransfer::with_default_obis();
-        let result = it.get_attribute(99, None).await;
+        let result = it.get_attribute(99, None, None).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_image_transfer_invalid_method() {
         let it = ImageTransfer::with_default_obis();
-        let result = it.invoke_method(99, None, None).await;
+        let result = it.invoke_method(99, None, None, None).await;
         assert!(result.is_err());
     }
 }

@@ -235,7 +235,9 @@ impl CosemObject for DemandRegister {
         &self,
         attribute_id: u8,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<DataObject> {
+        crate::enforce_attribute_read(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Ok(DataObject::OctetString(self.logical_name.to_bytes().to_vec()))
@@ -288,7 +290,9 @@ impl CosemObject for DemandRegister {
         attribute_id: u8,
         value: DataObject,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<()> {
+        crate::enforce_attribute_write(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Err(DlmsError::AccessDenied(
@@ -402,7 +406,9 @@ impl CosemObject for DemandRegister {
         method_id: u8,
         _parameters: Option<DataObject>,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<Option<DataObject>> {
+        crate::enforce_method_execute(ctx, self.class_id(), self.obis_code(), method_id).await?;
         match method_id {
             _ => Err(DlmsError::InvalidData(format!(
                 "Demand Register has no method {}",
@@ -470,11 +476,11 @@ mod tests {
     #[tokio::test]
     async fn test_demand_register_scaler_unit() {
         let reg = DemandRegister::with_default_obis(900);
-        assert_eq!(reg.get_attribute(3, None).await.unwrap(), DataObject::Null);
+        assert_eq!(reg.get_attribute(3, None, None).await.unwrap(), DataObject::Null);
 
         let scaler_unit = ScalerUnit::new(-1, 33); // kWh
         let value = scaler_unit.to_data_object();
-        reg.set_attribute(3, value, None).await.unwrap();
+        reg.set_attribute(3, value, None, None).await.unwrap();
 
         let result = reg.scaler_unit().await;
         assert!(result.is_some());
@@ -483,16 +489,16 @@ mod tests {
     #[tokio::test]
     async fn test_demand_register_number_of_periods() {
         let reg = DemandRegister::with_default_obis(900);
-        assert_eq!(reg.get_attribute(8, None).await.unwrap(), DataObject::Null);
+        assert_eq!(reg.get_attribute(8, None, None).await.unwrap(), DataObject::Null);
 
-        reg.set_attribute(8, DataObject::Unsigned32(12), None).await.unwrap();
+        reg.set_attribute(8, DataObject::Unsigned32(12), None, None).await.unwrap();
         assert_eq!(reg.number_of_periods().await, Some(12));
     }
 
     #[tokio::test]
     async fn test_demand_register_get_logical_name() {
         let reg = DemandRegister::with_default_obis(900);
-        let result = reg.get_attribute(1, None).await.unwrap();
+        let result = reg.get_attribute(1, None, None).await.unwrap();
 
         match result {
             DataObject::OctetString(bytes) => {
@@ -505,14 +511,14 @@ mod tests {
     #[tokio::test]
     async fn test_demand_register_invalid_attribute() {
         let reg = DemandRegister::with_default_obis(900);
-        let result = reg.get_attribute(99, None).await;
+        let result = reg.get_attribute(99, None, None).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_demand_register_read_only_logical_name() {
         let reg = DemandRegister::with_default_obis(900);
-        let result = reg.set_attribute(1, DataObject::OctetString(vec![0, 0, 1, 0, 14, 0]), None).await;
+        let result = reg.set_attribute(1, DataObject::OctetString(vec![0, 0, 1, 0, 14, 0]), None, None).await;
         assert!(result.is_err());
     }
 
@@ -521,7 +527,7 @@ mod tests {
         let reg = DemandRegister::with_default_obis(900);
         let status = vec![0x01, 0x02];
 
-        reg.set_attribute(4, DataObject::OctetString(status.clone()), None).await.unwrap();
+        reg.set_attribute(4, DataObject::OctetString(status.clone()), None, None).await.unwrap();
 
         assert_eq!(reg.status().await, Some(status));
     }

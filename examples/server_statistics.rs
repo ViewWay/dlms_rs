@@ -30,7 +30,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Register COSEM objects
     let energy_register = Register::new(ObisCode::new(1, 1, 1, 8, 0, 255));
     energy_register.set_unit(dlms_interface::Unit::KilowattHour);
-    energy_register.set_attribute(2, DataObject::Unsigned32(1234567)).await?;
+    energy_register
+        .set_attribute(2, DataObject::Unsigned32(1234567), None, None)
+        .await?;
     server.register_object(Arc::new(energy_register)).await?;
 
     let clock = Clock::with_default_obis();

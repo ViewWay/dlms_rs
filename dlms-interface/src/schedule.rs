@@ -254,7 +254,9 @@ impl CosemObject for Schedule {
         &self,
         attribute_id: u8,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<DataObject> {
+        crate::enforce_attribute_read(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Ok(DataObject::OctetString(self.logical_name.to_bytes().to_vec()))
@@ -274,7 +276,9 @@ impl CosemObject for Schedule {
         attribute_id: u8,
         value: DataObject,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<()> {
+        crate::enforce_attribute_write(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Err(DlmsError::AccessDenied(
@@ -332,7 +336,9 @@ impl CosemObject for Schedule {
         method_id: u8,
         parameters: Option<DataObject>,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<Option<DataObject>> {
+        crate::enforce_method_execute(ctx, self.class_id(), self.obis_code(), method_id).await?;
         match method_id {
             Self::METHOD_SCRIPT_EXECUTE => {
                 if let Some(DataObject::Unsigned8(script_id)) = parameters {
@@ -466,21 +472,21 @@ mod tests {
     #[tokio::test]
     async fn test_schedule_method_invoke() {
         let schedule = Schedule::with_default_obis();
-        let result = schedule.invoke_method(1, Some(DataObject::Unsigned8(5)), None).await.unwrap();
+        let result = schedule.invoke_method(1, Some(DataObject::Unsigned8(5)), None, None).await.unwrap();
         assert!(result.is_some());
     }
 
     #[tokio::test]
     async fn test_schedule_method_invalid_params() {
         let schedule = Schedule::with_default_obis();
-        let result = schedule.invoke_method(1, Some(DataObject::Integer64(123)), None).await;
+        let result = schedule.invoke_method(1, Some(DataObject::Integer64(123)), None, None).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_schedule_get_logical_name() {
         let schedule = Schedule::with_default_obis();
-        let result = schedule.get_attribute(1, None).await.unwrap();
+        let result = schedule.get_attribute(1, None, None).await.unwrap();
 
         match result {
             DataObject::OctetString(bytes) => {
@@ -493,7 +499,7 @@ mod tests {
     #[tokio::test]
     async fn test_schedule_read_only_logical_name() {
         let schedule = Schedule::with_default_obis();
-        let result = schedule.set_attribute(1, DataObject::OctetString(vec![0, 0, 11, 0, 0, 1]), None).await;
+        let result = schedule.set_attribute(1, DataObject::OctetString(vec![0, 0, 11, 0, 0, 1]), None, None).await;
         assert!(result.is_err());
     }
 
@@ -504,7 +510,7 @@ mod tests {
         let entry = ScheduleEntry::new(1, time);
 
         schedule.add_entry(entry).await.unwrap();
-        let result = schedule.get_attribute(2, None).await.unwrap();
+        let result = schedule.get_attribute(2, None, None).await.unwrap();
 
         match result {
             DataObject::Array(entries) => {
@@ -527,7 +533,7 @@ mod tests {
             ]),
         ]);
 
-        schedule.set_attribute(2, entry_data, None).await.unwrap();
+        schedule.set_attribute(2, entry_data, None, None).await.unwrap();
         assert_eq!(schedule.entry_count().await, 1);
 
         let entry = schedule.get_entry(0).await.unwrap();
@@ -538,14 +544,14 @@ mod tests {
     #[tokio::test]
     async fn test_schedule_invalid_attribute() {
         let schedule = Schedule::with_default_obis();
-        let result = schedule.get_attribute(99, None).await;
+        let result = schedule.get_attribute(99, None, None).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_schedule_invalid_method() {
         let schedule = Schedule::with_default_obis();
-        let result = schedule.invoke_method(99, None, None).await;
+        let result = schedule.invoke_method(99, None, None, None).await;
         assert!(result.is_err());
     }
 

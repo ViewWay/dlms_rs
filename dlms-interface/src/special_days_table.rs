@@ -245,7 +245,9 @@ impl CosemObject for SpecialDaysTable {
         &self,
         attribute_id: u8,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<DataObject> {
+        crate::enforce_attribute_read(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Ok(DataObject::OctetString(self.logical_name.to_bytes().to_vec()))
@@ -268,7 +270,9 @@ impl CosemObject for SpecialDaysTable {
         attribute_id: u8,
         value: DataObject,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<()> {
+        crate::enforce_attribute_write(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Err(DlmsError::AccessDenied(
@@ -306,7 +310,9 @@ impl CosemObject for SpecialDaysTable {
         method_id: u8,
         parameters: Option<DataObject>,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<Option<DataObject>> {
+        crate::enforce_method_execute(ctx, self.class_id(), self.obis_code(), method_id).await?;
         match method_id {
             Self::METHOD_ADD_SPECIAL_DAY => {
                 match parameters {
@@ -525,7 +531,7 @@ mod tests {
     #[tokio::test]
     async fn test_special_days_table_get_logical_name() {
         let table = SpecialDaysTable::with_default_obis();
-        let result = table.get_attribute(1, None).await.unwrap();
+        let result = table.get_attribute(1, None, None).await.unwrap();
 
         match result {
             DataObject::OctetString(bytes) => {
@@ -538,7 +544,7 @@ mod tests {
     #[tokio::test]
     async fn test_special_days_table_get_special_days_table() {
         let table = SpecialDaysTable::with_default_obis();
-        let result = table.get_attribute(2, None).await.unwrap();
+        let result = table.get_attribute(2, None, None).await.unwrap();
 
         match result {
             DataObject::Array(arr) => {
@@ -550,7 +556,7 @@ mod tests {
         let date = create_test_date(2024, 12, 25);
         table.add_entry(SpecialDayEntry::new(date, DayId::PublicHoliday)).await;
 
-        let result = table.get_attribute(2, None).await.unwrap();
+        let result = table.get_attribute(2, None, None).await.unwrap();
         match result {
             DataObject::Array(arr) => {
                 assert_eq!(arr.len(), 1);
@@ -570,7 +576,7 @@ mod tests {
         ]);
 
         table
-            .set_attribute(2, DataObject::Array(vec![entry_data]), None)
+            .set_attribute(2, DataObject::Array(vec![entry_data]), None, None)
             .await
             .unwrap();
 
@@ -583,7 +589,7 @@ mod tests {
         let date = create_test_date(2024, 12, 25);
         table.add_entry(SpecialDayEntry::new(date, DayId::PublicHoliday)).await;
 
-        table.set_attribute(2, DataObject::Null, None).await.unwrap();
+        table.set_attribute(2, DataObject::Null, None, None).await.unwrap();
         assert!(table.is_empty().await);
     }
 
@@ -591,7 +597,7 @@ mod tests {
     async fn test_special_days_table_read_only_logical_name() {
         let table = SpecialDaysTable::with_default_obis();
         let result = table
-            .set_attribute(1, DataObject::OctetString(vec![0, 0, 11, 0, 0, 1]), None)
+            .set_attribute(1, DataObject::OctetString(vec![0, 0, 11, 0, 0, 1]), None, None)
             .await;
         assert!(result.is_err());
     }
@@ -606,7 +612,7 @@ mod tests {
             DataObject::Enumerate(2),
         ]);
 
-        table.invoke_method(1, Some(params), None).await.unwrap();
+        table.invoke_method(1, Some(params), None, None).await.unwrap();
         assert_eq!(table.len().await, 1);
         assert_eq!(table.get_day_id(&date).await, Some(DayId::PublicHoliday));
     }
@@ -618,7 +624,7 @@ mod tests {
         table.add_entry(SpecialDayEntry::new(date.clone(), DayId::PublicHoliday)).await;
 
         table
-            .invoke_method(2, Some(DataObject::OctetString(date.encode())), None)
+            .invoke_method(2, Some(DataObject::OctetString(date.encode())), None, None)
             .await
             .unwrap();
 
@@ -632,7 +638,7 @@ mod tests {
         table.add_entry(SpecialDayEntry::new(date.clone(), DayId::PublicHoliday)).await;
 
         let result = table
-            .invoke_method(3, Some(DataObject::OctetString(date.encode())), None)
+            .invoke_method(3, Some(DataObject::OctetString(date.encode())), None, None)
             .await
             .unwrap();
 
@@ -646,7 +652,7 @@ mod tests {
 
         let date_bytes = date.encode();
         let result = table
-            .invoke_method(3, Some(DataObject::OctetString(date_bytes)), None)
+            .invoke_method(3, Some(DataObject::OctetString(date_bytes)), None, None)
             .await
             .unwrap();
 
@@ -657,14 +663,14 @@ mod tests {
     #[tokio::test]
     async fn test_special_days_table_invalid_attribute() {
         let table = SpecialDaysTable::with_default_obis();
-        let result = table.get_attribute(99, None).await;
+        let result = table.get_attribute(99, None, None).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_special_days_table_invalid_method() {
         let table = SpecialDaysTable::with_default_obis();
-        let result = table.invoke_method(99, None, None).await;
+        let result = table.invoke_method(99, None, None, None).await;
         assert!(result.is_err());
     }
 }

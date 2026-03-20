@@ -306,7 +306,9 @@ impl CosemObject for GprsSetup {
         &self,
         attribute_id: u8,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<DataObject> {
+        crate::enforce_attribute_read(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Ok(DataObject::OctetString(self.logical_name.to_bytes().to_vec()))
@@ -341,7 +343,9 @@ impl CosemObject for GprsSetup {
         attribute_id: u8,
         value: DataObject,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<()> {
+        crate::enforce_attribute_write(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Err(DlmsError::AccessDenied(
@@ -419,7 +423,9 @@ impl CosemObject for GprsSetup {
         method_id: u8,
         _parameters: Option<DataObject>,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<Option<DataObject>> {
+        crate::enforce_method_execute(ctx, self.class_id(), self.obis_code(), method_id).await?;
         Err(DlmsError::InvalidData(format!(
             "GprsSetup has no method {}",
             method_id
@@ -633,21 +639,21 @@ mod tests {
         let gprs = GprsSetup::with_default_obis();
 
         // Test apn
-        let result = gprs.get_attribute(2, None).await.unwrap();
+        let result = gprs.get_attribute(2, None, None).await.unwrap();
         match result {
             DataObject::OctetString(bytes) => assert!(bytes.is_empty()),
             _ => panic!("Expected OctetString"),
         }
 
         // Test allowed_connections
-        let result = gprs.get_attribute(4, None).await.unwrap();
+        let result = gprs.get_attribute(4, None, None).await.unwrap();
         match result {
             DataObject::Unsigned8(count) => assert_eq!(count, 1),
             _ => panic!("Expected Unsigned8"),
         }
 
         // Test quality_of_service
-        let result = gprs.get_attribute(5, None).await.unwrap();
+        let result = gprs.get_attribute(5, None, None).await.unwrap();
         match result {
             DataObject::Enumerate(qos) => assert_eq!(qos, 2), // Normal
             _ => panic!("Expected Enumerate"),
@@ -658,17 +664,17 @@ mod tests {
     async fn test_gprs_setup_set_attributes() {
         let gprs = GprsSetup::with_default_obis();
 
-        gprs.set_attribute(2, DataObject::OctetString(b"internet.example.com".to_vec()), None)
+        gprs.set_attribute(2, DataObject::OctetString(b"internet.example.com".to_vec()), None, None)
             .await
             .unwrap();
         assert_eq!(gprs.apn().await, "internet.example.com");
 
-        gprs.set_attribute(4, DataObject::Unsigned8(3), None)
+        gprs.set_attribute(4, DataObject::Unsigned8(3), None, None)
             .await
             .unwrap();
         assert_eq!(gprs.allowed_connections().await, 3);
 
-        gprs.set_attribute(6, DataObject::Boolean(true), None)
+        gprs.set_attribute(6, DataObject::Boolean(true), None, None)
             .await
             .unwrap();
         assert!(gprs.enabled().await);
@@ -678,7 +684,7 @@ mod tests {
     async fn test_gprs_setup_set_pin_empty_clears() {
         let gprs = GprsSetup::with_default_obis();
         gprs.set_pin("1234".to_string()).await;
-        gprs.set_attribute(3, DataObject::OctetString(Vec::new()), None)
+        gprs.set_attribute(3, DataObject::OctetString(Vec::new()), None, None)
             .await
             .unwrap();
         assert_eq!(gprs.pin().await, None);
@@ -688,7 +694,7 @@ mod tests {
     async fn test_gprs_setup_read_only_logical_name() {
         let gprs = GprsSetup::with_default_obis();
         let result = gprs
-            .set_attribute(1, DataObject::OctetString(vec![0, 0, 63, 0, 0, 1]), None)
+            .set_attribute(1, DataObject::OctetString(vec![0, 0, 63, 0, 0, 1]), None, None)
             .await;
         assert!(result.is_err());
     }
@@ -696,14 +702,14 @@ mod tests {
     #[tokio::test]
     async fn test_gprs_setup_invalid_attribute() {
         let gprs = GprsSetup::with_default_obis();
-        let result = gprs.get_attribute(99, None).await;
+        let result = gprs.get_attribute(99, None, None).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_gprs_setup_invalid_method() {
         let gprs = GprsSetup::with_default_obis();
-        let result = gprs.invoke_method(1, None, None).await;
+        let result = gprs.invoke_method(1, None, None, None).await;
         assert!(result.is_err());
     }
 

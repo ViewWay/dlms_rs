@@ -226,7 +226,9 @@ impl CosemObject for ValueDisplay {
         &self,
         attribute_id: u8,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<DataObject> {
+        crate::enforce_attribute_read(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Ok(DataObject::OctetString(self.logical_name.to_bytes().to_vec()))
@@ -258,7 +260,9 @@ impl CosemObject for ValueDisplay {
         attribute_id: u8,
         value: DataObject,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<()> {
+        crate::enforce_attribute_write(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Err(DlmsError::AccessDenied(
@@ -372,7 +376,9 @@ impl CosemObject for ValueDisplay {
         method_id: u8,
         _parameters: Option<DataObject>,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<Option<DataObject>> {
+        crate::enforce_method_execute(ctx, self.class_id(), self.obis_code(), method_id).await?;
         Err(DlmsError::InvalidData(format!(
             "ValueDisplay has no method {}",
             method_id
@@ -512,14 +518,14 @@ mod tests {
         let vd = ValueDisplay::with_default_obis();
 
         // Test value
-        let result = vd.get_attribute(2, None).await.unwrap();
+        let result = vd.get_attribute(2, None, None).await.unwrap();
         match result {
             DataObject::Float64(v) => assert_eq!(v, 0.0),
             _ => panic!("Expected Float64"),
         }
 
         // Test enabled
-        let result = vd.get_attribute(5, None).await.unwrap();
+        let result = vd.get_attribute(5, None, None).await.unwrap();
         match result {
             DataObject::Boolean(enabled) => assert!(enabled),
             _ => panic!("Expected Boolean"),
@@ -530,12 +536,12 @@ mod tests {
     async fn test_value_display_set_attributes() {
         let vd = ValueDisplay::with_default_obis();
 
-        vd.set_attribute(2, DataObject::Float64(42.5), None)
+        vd.set_attribute(2, DataObject::Float64(42.5), None, None)
             .await
             .unwrap();
         assert_eq!(vd.value().await, 42.5);
 
-        vd.set_attribute(3, DataObject::OctetString(b"kWh".to_vec()), None)
+        vd.set_attribute(3, DataObject::OctetString(b"kWh".to_vec()), None, None)
             .await
             .unwrap();
         assert_eq!(vd.unit().await, "kWh");
@@ -544,7 +550,7 @@ mod tests {
     #[tokio::test]
     async fn test_value_display_set_value_from_integer() {
         let vd = ValueDisplay::with_default_obis();
-        vd.set_attribute(2, DataObject::Integer32(100), None)
+        vd.set_attribute(2, DataObject::Integer32(100), None, None)
             .await
             .unwrap();
         assert_eq!(vd.value().await, 100.0);
@@ -553,7 +559,7 @@ mod tests {
     #[tokio::test]
     async fn test_value_display_set_value_from_unsigned() {
         let vd = ValueDisplay::with_default_obis();
-        vd.set_attribute(2, DataObject::Unsigned16(50), None)
+        vd.set_attribute(2, DataObject::Unsigned16(50), None, None)
             .await
             .unwrap();
         assert_eq!(vd.value().await, 50.0);
@@ -562,7 +568,7 @@ mod tests {
     #[tokio::test]
     async fn test_value_display_set_value_from_float32() {
         let vd = ValueDisplay::with_default_obis();
-        vd.set_attribute(2, DataObject::Float32(12.34), None)
+        vd.set_attribute(2, DataObject::Float32(12.34), None, None)
             .await
             .unwrap();
         assert!((vd.value().await - 12.34).abs() < 0.01);
@@ -571,7 +577,7 @@ mod tests {
     #[tokio::test]
     async fn test_value_display_set_refresh_rate_u8() {
         let vd = ValueDisplay::with_default_obis();
-        vd.set_attribute(6, DataObject::Unsigned8(15), None)
+        vd.set_attribute(6, DataObject::Unsigned8(15), None, None)
             .await
             .unwrap();
         assert_eq!(vd.refresh_rate().await, 15);
@@ -581,7 +587,7 @@ mod tests {
     async fn test_value_display_read_only_logical_name() {
         let vd = ValueDisplay::with_default_obis();
         let result = vd
-            .set_attribute(1, DataObject::OctetString(vec![0, 0, 100, 0, 0, 1]), None)
+            .set_attribute(1, DataObject::OctetString(vec![0, 0, 100, 0, 0, 1]), None, None)
             .await;
         assert!(result.is_err());
     }
@@ -589,14 +595,14 @@ mod tests {
     #[tokio::test]
     async fn test_value_display_invalid_attribute() {
         let vd = ValueDisplay::with_default_obis();
-        let result = vd.get_attribute(99, None).await;
+        let result = vd.get_attribute(99, None, None).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_value_display_invalid_method() {
         let vd = ValueDisplay::with_default_obis();
-        let result = vd.invoke_method(1, None, None).await;
+        let result = vd.invoke_method(1, None, None, None).await;
         assert!(result.is_err());
     }
 

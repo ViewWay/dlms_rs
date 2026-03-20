@@ -289,65 +289,6 @@ impl MethodDescriptor {
     }
 }
 
-/// Access right entry
-///
-/// Defines access rights for a specific user or group.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AccessRight {
-    /// User ID (0 = public, 1-16 = specific users)
-    pub user_id: u8,
-    /// Access rights for attributes (vector of (attribute_id, access_mode))
-    pub attribute_rights: Vec<(u8, AccessMode)>,
-    /// Access rights for methods (vector of (method_id, access_mode))
-    pub method_rights: Vec<(u8, AccessMode)>,
-}
-
-impl AccessRight {
-    /// Create a new access right entry
-    pub fn new(user_id: u8) -> Self {
-        Self {
-            user_id,
-            attribute_rights: Vec::new(),
-            method_rights: Vec::new(),
-        }
-    }
-
-    /// Add an attribute access right
-    pub fn add_attribute_right(&mut self, attribute_id: u8, mode: AccessMode) {
-        self.attribute_rights.push((attribute_id, mode));
-    }
-
-    /// Add a method access right
-    pub fn add_method_right(&mut self, method_id: u8, mode: AccessMode) {
-        self.method_rights.push((method_id, mode));
-    }
-
-    /// Check if attribute access is allowed
-    pub fn can_access_attribute(&self, attribute_id: u8, mode: AccessMode) -> bool {
-        for (attr_id, access_mode) in &self.attribute_rights {
-            if *attr_id == attribute_id {
-                match mode {
-                    AccessMode::ReadOnly => return access_mode.can_read(),
-                    AccessMode::WriteOnly => return access_mode.can_write(),
-                    AccessMode::ReadWrite => return access_mode.can_read() && access_mode.can_write(),
-                    _ => return *access_mode == mode,
-                }
-            }
-        }
-        false
-    }
-
-    /// Check if method access is allowed
-    pub fn can_access_method(&self, method_id: u8) -> bool {
-        for (meth_id, _) in &self.method_rights {
-            if *meth_id == method_id {
-                return true;
-            }
-        }
-        false
-    }
-}
-
 /// User information
 ///
 /// Contains user authentication and identification information.

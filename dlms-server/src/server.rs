@@ -555,7 +555,9 @@ impl DlmsServer {
                     CosemAttributeDescriptor::ShortName { reference, .. } => reference.id,
                 };
 
-                let value = object.get_attribute(attribute_id, selective_access.as_deref()).await?;
+                let value = object
+                    .get_attribute(attribute_id, selective_access.as_deref(), None)
+                    .await?;
 
                 // Create response
                 let invoke_id = normal.invoke_id_and_priority().invoke_id();
@@ -648,7 +650,10 @@ impl DlmsServer {
             };
 
             // Get attribute value
-            match object.get_attribute(attribute_id, selective_access).await {
+            match object
+                .get_attribute(attribute_id, selective_access, None)
+                .await
+            {
                 Ok(value) => {
                     result_list.push(GetDataResult::new_data(value));
                 }
@@ -871,7 +876,14 @@ impl DlmsServer {
                     CosemAttributeDescriptor::ShortName { reference, .. } => reference.id,
                 };
 
-                object.set_attribute(attribute_id, value.clone(), selective_access.as_deref()).await?;
+                object
+                    .set_attribute(
+                        attribute_id,
+                        value.clone(),
+                        selective_access.as_deref(),
+                        None,
+                    )
+                    .await?;
 
                 // Create response
                 let invoke_id = normal.invoke_id_and_priority().invoke_id();
@@ -1075,7 +1087,15 @@ impl DlmsServer {
             };
 
             // Set attribute
-            match object.set_attribute(attribute_id, value.clone(), selective_access.as_deref()).await {
+            match object
+                .set_attribute(
+                    attribute_id,
+                    value.clone(),
+                    selective_access.as_deref(),
+                    None,
+                )
+                .await
+            {
                 Ok(_) => {
                     result_list.push(SetDataResult::new_success());
                 }
@@ -1143,7 +1163,9 @@ impl DlmsServer {
                     CosemMethodDescriptor::ShortName { reference, .. } => reference.id,
                 };
 
-                let return_value = object.invoke_method(method_id, parameters.cloned(), None).await?;
+                let return_value = object
+                    .invoke_method(method_id, parameters.cloned(), None, None)
+                    .await?;
 
                 // Create response
                 let invoke_id = normal.invoke_id_and_priority().invoke_id();
@@ -1223,7 +1245,10 @@ impl DlmsServer {
                                 CosemAttributeDescriptor::ShortName { reference, .. } => reference.id,
                             };
 
-                            match object.get_attribute(attribute_id, access_selection.as_ref()).await {
+                            match object
+                                .get_attribute(attribute_id, access_selection.as_ref(), None)
+                                .await
+                            {
                                 Ok(value) => {
                                     AccessResponseSpecification::Get(
                                         GetDataResult::new_data(value),
@@ -1279,7 +1304,15 @@ impl DlmsServer {
                                 CosemAttributeDescriptor::ShortName { reference, .. } => reference.id,
                             };
 
-                            match object.set_attribute(attribute_id, value.clone(), access_selection.as_ref()).await {
+                            match object
+                                .set_attribute(
+                                    attribute_id,
+                                    value.clone(),
+                                    access_selection.as_ref(),
+                                    None,
+                                )
+                                .await
+                            {
                                 Ok(_) => {
                                     AccessResponseSpecification::Set(
                                         SetDataResult::new_success(),
@@ -1334,7 +1367,15 @@ impl DlmsServer {
                                 CosemMethodDescriptor::ShortName { reference, .. } => reference.id,
                             };
 
-                            match object.invoke_method(method_id, method_invocation_parameters.clone(), None).await {
+                            match object
+                                .invoke_method(
+                                    method_id,
+                                    method_invocation_parameters.clone(),
+                                    None,
+                                    None,
+                                )
+                                .await
+                            {
                                 Ok(return_value) => {
                                     if let Some(value) = return_value {
                                         AccessResponseSpecification::Action(

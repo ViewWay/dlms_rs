@@ -419,7 +419,9 @@ impl CosemObject for Register {
         &self,
         attribute_id: u8,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<DataObject> {
+        crate::enforce_attribute_read(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             1 => {
                 // Attribute 1: logical_name (OBIS code)
@@ -452,7 +454,9 @@ impl CosemObject for Register {
         attribute_id: u8,
         value: DataObject,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<()> {
+        crate::enforce_attribute_write(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             1 => {
                 // Attribute 1: logical_name is read-only
@@ -497,7 +501,9 @@ impl CosemObject for Register {
         method_id: u8,
         _parameters: Option<DataObject>,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<Option<DataObject>> {
+        crate::enforce_method_execute(ctx, self.class_id(), self.obis_code(), method_id).await?;
         Err(DlmsError::InvalidData(format!(
             "Register interface class has no method {}",
             method_id
@@ -530,7 +536,7 @@ mod tests {
         let register = Register::new(obis, value.clone(), scaler_unit, Some(0));
 
         // Get attribute 1 (logical_name)
-        let attr1 = register.get_attribute(1, None).await.unwrap();
+        let attr1 = register.get_attribute(1, None, None).await.unwrap();
         if let DataObject::OctetString(bytes) = attr1 {
             assert_eq!(bytes, obis.to_bytes());
         } else {
@@ -538,16 +544,16 @@ mod tests {
         }
 
         // Get attribute 2 (value)
-        let attr2 = register.get_attribute(2, None).await.unwrap();
+        let attr2 = register.get_attribute(2, None, None).await.unwrap();
         assert_eq!(attr2, value);
 
         // Get attribute 3 (scaler_unit)
-        let attr3 = register.get_attribute(3, None).await.unwrap();
+        let attr3 = register.get_attribute(3, None, None).await.unwrap();
         let decoded_scaler_unit = ScalerUnit::from_data_object(&attr3).unwrap();
         assert_eq!(decoded_scaler_unit, register.scaler_unit().await);
 
         // Get attribute 4 (status)
-        let attr4 = register.get_attribute(4, None).await.unwrap();
+        let attr4 = register.get_attribute(4, None, None).await.unwrap();
         if let DataObject::Unsigned8(s) = attr4 {
             assert_eq!(s, 0);
         } else {
@@ -564,21 +570,21 @@ mod tests {
 
         // Set attribute 2 (value)
         let new_value = DataObject::Unsigned32(67890);
-        register.set_attribute(2, new_value.clone(), None).await.unwrap();
+        register.set_attribute(2, new_value.clone(), None, None).await.unwrap();
 
         // Verify the value was updated
-        let current_value = register.get_attribute(2, None).await.unwrap();
+        let current_value = register.get_attribute(2, None, None).await.unwrap();
         assert_eq!(current_value, new_value);
 
         // Set attribute 4 (status)
         register
-            .set_attribute(4, DataObject::Unsigned8(1), None)
+            .set_attribute(4, DataObject::Unsigned8(1), None, None)
             .await
             .unwrap();
         assert_eq!(register.status().await, Some(1));
 
         // Clear status
-        register.set_attribute(4, DataObject::Null, None).await.unwrap();
+        register.set_attribute(4, DataObject::Null, None, None).await.unwrap();
         assert_eq!(register.status().await, None);
     }
 
@@ -609,11 +615,11 @@ mod tests {
         let register = Register::new(obis, value, scaler_unit, None);
 
         // Try to get non-existent attribute
-        let result = register.get_attribute(99, None).await;
+        let result = register.get_attribute(99, None, None).await;
         assert!(result.is_err());
 
         // Try to set non-existent attribute
-        let result = register.set_attribute(99, DataObject::Integer32(0), None).await;
+        let result = register.set_attribute(99, DataObject::Integer32(0), None, None).await;
         assert!(result.is_err());
     }
 

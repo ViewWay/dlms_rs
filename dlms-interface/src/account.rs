@@ -271,7 +271,9 @@ impl CosemObject for Account {
         &self,
         attribute_id: u8,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<DataObject> {
+        crate::enforce_attribute_read(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Ok(DataObject::OctetString(self.logical_name.to_bytes().to_vec()))
@@ -309,7 +311,9 @@ impl CosemObject for Account {
         attribute_id: u8,
         value: DataObject,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<()> {
+        crate::enforce_attribute_write(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Err(DlmsError::AccessDenied(
@@ -407,7 +411,9 @@ impl CosemObject for Account {
         method_id: u8,
         _parameters: Option<DataObject>,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<Option<DataObject>> {
+        crate::enforce_method_execute(ctx, self.class_id(), self.obis_code(), method_id).await?;
         Err(DlmsError::InvalidData(format!(
             "Account has no method {}",
             method_id
@@ -579,14 +585,14 @@ mod tests {
         let acc = Account::with_default_obis();
 
         // Test current_credit
-        let result = acc.get_attribute(3, None).await.unwrap();
+        let result = acc.get_attribute(3, None, None).await.unwrap();
         match result {
             DataObject::Integer64(credit) => assert_eq!(credit, 0),
             _ => panic!("Expected Integer64"),
         }
 
         // Test credit_status
-        let result = acc.get_attribute(4, None).await.unwrap();
+        let result = acc.get_attribute(4, None, None).await.unwrap();
         match result {
             DataObject::Enumerate(status) => assert_eq!(status, 1), // Disabled
             _ => panic!("Expected Enumerate"),
@@ -597,17 +603,17 @@ mod tests {
     async fn test_account_set_attributes() {
         let acc = Account::with_default_obis();
 
-        acc.set_attribute(2, DataObject::OctetString(b"ACCT-123".to_vec()), None)
+        acc.set_attribute(2, DataObject::OctetString(b"ACCT-123".to_vec()), None, None)
             .await
             .unwrap();
         assert_eq!(acc.account_id().await, "ACCT-123");
 
-        acc.set_attribute(3, DataObject::Integer64(100), None)
+        acc.set_attribute(3, DataObject::Integer64(100), None, None)
             .await
             .unwrap();
         assert_eq!(acc.current_credit().await, 100);
 
-        acc.set_attribute(6, DataObject::OctetString(b"EUR".to_vec()), None)
+        acc.set_attribute(6, DataObject::OctetString(b"EUR".to_vec()), None, None)
             .await
             .unwrap();
         assert_eq!(acc.currency().await, "EUR");
@@ -617,7 +623,7 @@ mod tests {
     async fn test_account_read_only_logical_name() {
         let acc = Account::with_default_obis();
         let result = acc
-            .set_attribute(1, DataObject::OctetString(vec![0, 0, 60, 0, 0, 1]), None)
+            .set_attribute(1, DataObject::OctetString(vec![0, 0, 60, 0, 0, 1]), None, None)
             .await;
         assert!(result.is_err());
     }
@@ -625,14 +631,14 @@ mod tests {
     #[tokio::test]
     async fn test_account_invalid_attribute() {
         let acc = Account::with_default_obis();
-        let result = acc.get_attribute(99, None).await;
+        let result = acc.get_attribute(99, None, None).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_account_invalid_method() {
         let acc = Account::with_default_obis();
-        let result = acc.invoke_method(1, None, None).await;
+        let result = acc.invoke_method(1, None, None, None).await;
         assert!(result.is_err());
     }
 }

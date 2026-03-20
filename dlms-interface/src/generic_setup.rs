@@ -209,7 +209,9 @@ impl CosemObject for GenericSetup {
         &self,
         attribute_id: u8,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<DataObject> {
+        crate::enforce_attribute_read(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Ok(DataObject::OctetString(self.logical_name.to_bytes().to_vec()))
@@ -250,7 +252,9 @@ impl CosemObject for GenericSetup {
         attribute_id: u8,
         value: DataObject,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<()> {
+        crate::enforce_attribute_write(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Err(DlmsError::AccessDenied(
@@ -357,7 +361,9 @@ impl CosemObject for GenericSetup {
         method_id: u8,
         _parameters: Option<DataObject>,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<Option<DataObject>> {
+        crate::enforce_method_execute(ctx, self.class_id(), self.obis_code(), method_id).await?;
         Err(DlmsError::InvalidData(format!(
             "GenericSetup has no method {}",
             method_id
@@ -474,56 +480,56 @@ mod tests {
         let setup = GenericSetup::with_default_obis();
 
         // Test parameter_1
-        let result = setup.get_attribute(2, None).await.unwrap();
+        let result = setup.get_attribute(2, None, None).await.unwrap();
         match result {
             DataObject::Unsigned8(v) => assert_eq!(v, 0),
             _ => panic!("Expected Unsigned8"),
         }
 
         // Test parameter_2
-        let result = setup.get_attribute(3, None).await.unwrap();
+        let result = setup.get_attribute(3, None, None).await.unwrap();
         match result {
             DataObject::Unsigned16(v) => assert_eq!(v, 0),
             _ => panic!("Expected Unsigned16"),
         }
 
         // Test parameter_3
-        let result = setup.get_attribute(4, None).await.unwrap();
+        let result = setup.get_attribute(4, None, None).await.unwrap();
         match result {
             DataObject::Unsigned32(v) => assert_eq!(v, 0),
             _ => panic!("Expected Unsigned32"),
         }
 
         // Test parameter_4
-        let result = setup.get_attribute(5, None).await.unwrap();
+        let result = setup.get_attribute(5, None, None).await.unwrap();
         match result {
             DataObject::Integer8(v) => assert_eq!(v, 0),
             _ => panic!("Expected Integer8"),
         }
 
         // Test parameter_5
-        let result = setup.get_attribute(6, None).await.unwrap();
+        let result = setup.get_attribute(6, None, None).await.unwrap();
         match result {
             DataObject::Integer16(v) => assert_eq!(v, 0),
             _ => panic!("Expected Integer16"),
         }
 
         // Test parameter_6
-        let result = setup.get_attribute(7, None).await.unwrap();
+        let result = setup.get_attribute(7, None, None).await.unwrap();
         match result {
             DataObject::Integer32(v) => assert_eq!(v, 0),
             _ => panic!("Expected Integer32"),
         }
 
         // Test parameter_7
-        let result = setup.get_attribute(8, None).await.unwrap();
+        let result = setup.get_attribute(8, None, None).await.unwrap();
         match result {
             DataObject::Boolean(v) => assert!(!v),
             _ => panic!("Expected Boolean"),
         }
 
         // Test parameter_8
-        let result = setup.get_attribute(9, None).await.unwrap();
+        let result = setup.get_attribute(9, None, None).await.unwrap();
         match result {
             DataObject::OctetString(bytes) => assert!(bytes.is_empty()),
             _ => panic!("Expected OctetString"),
@@ -534,42 +540,42 @@ mod tests {
     async fn test_generic_setup_set_attributes() {
         let setup = GenericSetup::with_default_obis();
 
-        setup.set_attribute(2, DataObject::Unsigned8(123), None)
+        setup.set_attribute(2, DataObject::Unsigned8(123), None, None)
             .await
             .unwrap();
         assert_eq!(setup.parameter_1().await, 123);
 
-        setup.set_attribute(3, DataObject::Unsigned16(456), None)
+        setup.set_attribute(3, DataObject::Unsigned16(456), None, None)
             .await
             .unwrap();
         assert_eq!(setup.parameter_2().await, 456);
 
-        setup.set_attribute(4, DataObject::Unsigned32(789), None)
+        setup.set_attribute(4, DataObject::Unsigned32(789), None, None)
             .await
             .unwrap();
         assert_eq!(setup.parameter_3().await, 789);
 
-        setup.set_attribute(5, DataObject::Integer8(-50), None)
+        setup.set_attribute(5, DataObject::Integer8(-50), None, None)
             .await
             .unwrap();
         assert_eq!(setup.parameter_4().await, -50);
 
-        setup.set_attribute(6, DataObject::Integer16(-1000), None)
+        setup.set_attribute(6, DataObject::Integer16(-1000), None, None)
             .await
             .unwrap();
         assert_eq!(setup.parameter_5().await, -1000);
 
-        setup.set_attribute(7, DataObject::Integer32(-5000), None)
+        setup.set_attribute(7, DataObject::Integer32(-5000), None, None)
             .await
             .unwrap();
         assert_eq!(setup.parameter_6().await, -5000);
 
-        setup.set_attribute(8, DataObject::Boolean(true), None)
+        setup.set_attribute(8, DataObject::Boolean(true), None, None)
             .await
             .unwrap();
         assert!(setup.parameter_7().await);
 
-        setup.set_attribute(9, DataObject::OctetString(vec![10, 20, 30]), None)
+        setup.set_attribute(9, DataObject::OctetString(vec![10, 20, 30]), None, None)
             .await
             .unwrap();
         assert_eq!(setup.parameter_8().await, vec![10, 20, 30]);
@@ -579,7 +585,7 @@ mod tests {
     async fn test_generic_setup_read_only_logical_name() {
         let setup = GenericSetup::with_default_obis();
         let result = setup
-            .set_attribute(1, DataObject::OctetString(vec![0, 0, 26, 0, 0, 1]), None)
+            .set_attribute(1, DataObject::OctetString(vec![0, 0, 26, 0, 0, 1]), None, None)
             .await;
         assert!(result.is_err());
     }
@@ -587,14 +593,14 @@ mod tests {
     #[tokio::test]
     async fn test_generic_setup_invalid_attribute() {
         let setup = GenericSetup::with_default_obis();
-        let result = setup.get_attribute(99, None).await;
+        let result = setup.get_attribute(99, None, None).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_generic_setup_invalid_method() {
         let setup = GenericSetup::with_default_obis();
-        let result = setup.invoke_method(1, None, None).await;
+        let result = setup.invoke_method(1, None, None, None).await;
         assert!(result.is_err());
     }
 
@@ -603,15 +609,15 @@ mod tests {
         let setup = GenericSetup::with_default_obis();
 
         // Wrong type for parameter_1
-        let result = setup.set_attribute(2, DataObject::Boolean(true), None).await;
+        let result = setup.set_attribute(2, DataObject::Boolean(true), None, None).await;
         assert!(result.is_err());
 
         // Wrong type for parameter_2
-        let result = setup.set_attribute(3, DataObject::Unsigned8(1), None).await;
+        let result = setup.set_attribute(3, DataObject::Unsigned8(1), None, None).await;
         assert!(result.is_err());
 
         // Wrong type for parameter_7
-        let result = setup.set_attribute(8, DataObject::Unsigned8(1), None).await;
+        let result = setup.set_attribute(8, DataObject::Unsigned8(1), None, None).await;
         assert!(result.is_err());
     }
 

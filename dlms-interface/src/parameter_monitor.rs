@@ -313,7 +313,9 @@ impl CosemObject for ParameterMonitor {
         &self,
         attribute_id: u8,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<DataObject> {
+        crate::enforce_attribute_read(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Ok(DataObject::OctetString(self.logical_name.to_bytes().to_vec()))
@@ -354,7 +356,9 @@ impl CosemObject for ParameterMonitor {
         attribute_id: u8,
         value: DataObject,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<()> {
+        crate::enforce_attribute_write(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Err(DlmsError::AccessDenied(
@@ -476,7 +480,9 @@ impl CosemObject for ParameterMonitor {
         method_id: u8,
         _parameters: Option<DataObject>,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<Option<DataObject>> {
+        crate::enforce_method_execute(ctx, self.class_id(), self.obis_code(), method_id).await?;
         Err(DlmsError::InvalidData(format!(
             "ParameterMonitor has no method {}",
             method_id
@@ -642,21 +648,21 @@ mod tests {
         let pm = ParameterMonitor::with_default_obis();
 
         // Test threshold_upper
-        let result = pm.get_attribute(3, None).await.unwrap();
+        let result = pm.get_attribute(3, None, None).await.unwrap();
         match result {
             DataObject::Integer64(threshold) => assert_eq!(threshold, 100),
             _ => panic!("Expected Integer64"),
         }
 
         // Test threshold_lower
-        let result = pm.get_attribute(4, None).await.unwrap();
+        let result = pm.get_attribute(4, None, None).await.unwrap();
         match result {
             DataObject::Integer64(threshold) => assert_eq!(threshold, 0),
             _ => panic!("Expected Integer64"),
         }
 
         // Test enabled
-        let result = pm.get_attribute(7, None).await.unwrap();
+        let result = pm.get_attribute(7, None, None).await.unwrap();
         match result {
             DataObject::Boolean(enabled) => assert!(!enabled),
             _ => panic!("Expected Boolean"),
@@ -667,17 +673,17 @@ mod tests {
     async fn test_parameter_monitor_set_attributes() {
         let pm = ParameterMonitor::with_default_obis();
 
-        pm.set_attribute(3, DataObject::Integer64(200), None)
+        pm.set_attribute(3, DataObject::Integer64(200), None, None)
             .await
             .unwrap();
         assert_eq!(pm.threshold_upper().await, 200);
 
-        pm.set_attribute(4, DataObject::Integer64(-50), None)
+        pm.set_attribute(4, DataObject::Integer64(-50), None, None)
             .await
             .unwrap();
         assert_eq!(pm.threshold_lower().await, -50);
 
-        pm.set_attribute(7, DataObject::Boolean(true), None)
+        pm.set_attribute(7, DataObject::Boolean(true), None, None)
             .await
             .unwrap();
         assert!(pm.enabled().await);
@@ -686,7 +692,7 @@ mod tests {
     #[tokio::test]
     async fn test_parameter_monitor_set_threshold_u32() {
         let pm = ParameterMonitor::with_default_obis();
-        pm.set_attribute(3, DataObject::Unsigned32(300), None)
+        pm.set_attribute(3, DataObject::Unsigned32(300), None, None)
             .await
             .unwrap();
         assert_eq!(pm.threshold_upper().await, 300);
@@ -695,7 +701,7 @@ mod tests {
     #[tokio::test]
     async fn test_parameter_monitor_set_threshold_u16() {
         let pm = ParameterMonitor::with_default_obis();
-        pm.set_attribute(3, DataObject::Unsigned16(400), None)
+        pm.set_attribute(3, DataObject::Unsigned16(400), None, None)
             .await
             .unwrap();
         assert_eq!(pm.threshold_upper().await, 400);
@@ -704,7 +710,7 @@ mod tests {
     #[tokio::test]
     async fn test_parameter_monitor_set_threshold_u8() {
         let pm = ParameterMonitor::with_default_obis();
-        pm.set_attribute(3, DataObject::Unsigned8(50), None)
+        pm.set_attribute(3, DataObject::Unsigned8(50), None, None)
             .await
             .unwrap();
         assert_eq!(pm.threshold_upper().await, 50);
@@ -713,7 +719,7 @@ mod tests {
     #[tokio::test]
     async fn test_parameter_monitor_set_threshold_i32() {
         let pm = ParameterMonitor::with_default_obis();
-        pm.set_attribute(3, DataObject::Integer32(250), None)
+        pm.set_attribute(3, DataObject::Integer32(250), None, None)
             .await
             .unwrap();
         assert_eq!(pm.threshold_upper().await, 250);
@@ -723,7 +729,7 @@ mod tests {
     async fn test_parameter_monitor_read_only_logical_name() {
         let pm = ParameterMonitor::with_default_obis();
         let result = pm
-            .set_attribute(1, DataObject::OctetString(vec![0, 0, 96, 0, 0, 1]), None)
+            .set_attribute(1, DataObject::OctetString(vec![0, 0, 96, 0, 0, 1]), None, None)
             .await;
         assert!(result.is_err());
     }
@@ -732,7 +738,7 @@ mod tests {
     async fn test_parameter_monitor_read_only_last_trigger_time() {
         let pm = ParameterMonitor::with_default_obis();
         let result = pm
-            .set_attribute(8, DataObject::Integer32(1234567890), None)
+            .set_attribute(8, DataObject::Integer32(1234567890), None, None)
             .await;
         assert!(result.is_err());
     }
@@ -740,14 +746,14 @@ mod tests {
     #[tokio::test]
     async fn test_parameter_monitor_invalid_attribute() {
         let pm = ParameterMonitor::with_default_obis();
-        let result = pm.get_attribute(99, None).await;
+        let result = pm.get_attribute(99, None, None).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_parameter_monitor_invalid_method() {
         let pm = ParameterMonitor::with_default_obis();
-        let result = pm.invoke_method(1, None, None).await;
+        let result = pm.invoke_method(1, None, None, None).await;
         assert!(result.is_err());
     }
 

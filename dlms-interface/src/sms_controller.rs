@@ -278,7 +278,9 @@ impl CosemObject for SmsController {
         &self,
         attribute_id: u8,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<DataObject> {
+        crate::enforce_attribute_read(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Ok(DataObject::OctetString(self.logical_name.to_bytes().to_vec()))
@@ -316,7 +318,9 @@ impl CosemObject for SmsController {
         attribute_id: u8,
         value: DataObject,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<()> {
+        crate::enforce_attribute_write(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Err(DlmsError::AccessDenied(
@@ -414,7 +418,9 @@ impl CosemObject for SmsController {
         method_id: u8,
         _parameters: Option<DataObject>,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<Option<DataObject>> {
+        crate::enforce_method_execute(ctx, self.class_id(), self.obis_code(), method_id).await?;
         Err(DlmsError::InvalidData(format!(
             "SmsController has no method {}",
             method_id
@@ -606,21 +612,21 @@ mod tests {
         let sms = SmsController::with_default_obis();
 
         // Test sms_enabled
-        let result = sms.get_attribute(2, None).await.unwrap();
+        let result = sms.get_attribute(2, None, None).await.unwrap();
         match result {
             DataObject::Boolean(enabled) => assert!(!enabled),
             _ => panic!("Expected Boolean"),
         }
 
         // Test send_count
-        let result = sms.get_attribute(6, None).await.unwrap();
+        let result = sms.get_attribute(6, None, None).await.unwrap();
         match result {
             DataObject::Unsigned32(count) => assert_eq!(count, 0),
             _ => panic!("Expected Unsigned32"),
         }
 
         // Test send_status
-        let result = sms.get_attribute(5, None).await.unwrap();
+        let result = sms.get_attribute(5, None, None).await.unwrap();
         match result {
             DataObject::Enumerate(status) => assert_eq!(status, 0), // Idle
             _ => panic!("Expected Enumerate"),
@@ -631,17 +637,17 @@ mod tests {
     async fn test_sms_controller_set_attributes() {
         let sms = SmsController::with_default_obis();
 
-        sms.set_attribute(2, DataObject::Boolean(true), None)
+        sms.set_attribute(2, DataObject::Boolean(true), None, None)
             .await
             .unwrap();
         assert!(sms.sms_enabled().await);
 
-        sms.set_attribute(3, DataObject::OctetString(b"+9876543210".to_vec()), None)
+        sms.set_attribute(3, DataObject::OctetString(b"+9876543210".to_vec()), None, None)
             .await
             .unwrap();
         assert_eq!(sms.phone_number().await, "+9876543210");
 
-        sms.set_attribute(8, DataObject::Unsigned16(140), None)
+        sms.set_attribute(8, DataObject::Unsigned16(140), None, None)
             .await
             .unwrap();
         assert_eq!(sms.max_message_size().await, 140);
@@ -651,7 +657,7 @@ mod tests {
     async fn test_sms_controller_read_only_logical_name() {
         let sms = SmsController::with_default_obis();
         let result = sms
-            .set_attribute(1, DataObject::OctetString(vec![0, 0, 27, 0, 0, 1]), None)
+            .set_attribute(1, DataObject::OctetString(vec![0, 0, 27, 0, 0, 1]), None, None)
             .await;
         assert!(result.is_err());
     }
@@ -659,14 +665,14 @@ mod tests {
     #[tokio::test]
     async fn test_sms_controller_invalid_attribute() {
         let sms = SmsController::with_default_obis();
-        let result = sms.get_attribute(99, None).await;
+        let result = sms.get_attribute(99, None, None).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_sms_controller_invalid_method() {
         let sms = SmsController::with_default_obis();
-        let result = sms.invoke_method(1, None, None).await;
+        let result = sms.invoke_method(1, None, None, None).await;
         assert!(result.is_err());
     }
 }

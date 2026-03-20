@@ -281,7 +281,9 @@ impl CosemObject for Limiter {
         &self,
         attribute_id: u8,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<DataObject> {
+        crate::enforce_attribute_read(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Ok(DataObject::OctetString(self.logical_name.to_bytes().to_vec()))
@@ -322,7 +324,9 @@ impl CosemObject for Limiter {
         attribute_id: u8,
         value: DataObject,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<()> {
+        crate::enforce_attribute_write(ctx, self.class_id(), self.obis_code(), attribute_id).await?;
         match attribute_id {
             Self::ATTR_LOGICAL_NAME => {
                 Err(DlmsError::AccessDenied(
@@ -417,7 +421,9 @@ impl CosemObject for Limiter {
         method_id: u8,
         _parameters: Option<DataObject>,
         _selective_access: Option<&SelectiveAccessDescriptor>,
+        ctx: Option<&crate::association_access::CosemInvocationContext>,
     ) -> DlmsResult<Option<DataObject>> {
+        crate::enforce_method_execute(ctx, self.class_id(), self.obis_code(), method_id).await?;
         match method_id {
             Self::METHOD_REMOTE_DISCONNECT => {
                 self.remote_disconnect().await?;
@@ -534,7 +540,7 @@ mod tests {
     #[tokio::test]
     async fn test_limiter_get_logical_name() {
         let limiter = Limiter::with_default_obis(1000, 900);
-        let result = limiter.get_attribute(1, None).await.unwrap();
+        let result = limiter.get_attribute(1, None, None).await.unwrap();
 
         match result {
             DataObject::OctetString(bytes) => {
@@ -547,10 +553,10 @@ mod tests {
     #[tokio::test]
     async fn test_limiter_get_thresholds() {
         let limiter = Limiter::with_default_obis(1000, 900);
-        let result = limiter.get_attribute(2, None).await.unwrap();
+        let result = limiter.get_attribute(2, None, None).await.unwrap();
         assert_eq!(result, DataObject::Integer64(1000));
 
-        let result = limiter.get_attribute(3, None).await.unwrap();
+        let result = limiter.get_attribute(3, None, None).await.unwrap();
         assert_eq!(result, DataObject::Integer64(900));
     }
 
@@ -558,11 +564,11 @@ mod tests {
     async fn test_limiter_get_reactive_thresholds() {
         let limiter = Limiter::with_default_obis(1000, 900);
 
-        let result = limiter.get_attribute(4, None).await.unwrap();
+        let result = limiter.get_attribute(4, None, None).await.unwrap();
         assert_eq!(result, DataObject::Null);
 
         limiter.set_threshold_reactive(Some(500)).await;
-        let result = limiter.get_attribute(4, None).await.unwrap();
+        let result = limiter.get_attribute(4, None, None).await.unwrap();
         assert_eq!(result, DataObject::Integer64(500));
     }
 
@@ -570,7 +576,7 @@ mod tests {
     async fn test_limiter_set_thresholds_via_attribute() {
         let limiter = Limiter::with_default_obis(1000, 900);
         limiter
-            .set_attribute(2, DataObject::Integer64(1500), None)
+            .set_attribute(2, DataObject::Integer64(1500), None, None)
             .await
             .unwrap();
         assert_eq!(limiter.threshold_active().await, 1500);
@@ -580,7 +586,7 @@ mod tests {
     async fn test_limiter_set_actions_via_attribute() {
         let limiter = Limiter::with_default_obis(1000, 900);
         limiter
-            .set_attribute(6, DataObject::Enumerate(3), None)
+            .set_attribute(6, DataObject::Enumerate(3), None, None)
             .await
             .unwrap();
         assert_eq!(limiter.action_threshold_over().await, LimiterAction::SendAlarm);
@@ -590,7 +596,7 @@ mod tests {
     async fn test_limiter_read_only_logical_name() {
         let limiter = Limiter::with_default_obis(1000, 900);
         let result = limiter
-            .set_attribute(1, DataObject::OctetString(vec![0, 0, 97, 0, 0, 1]), None)
+            .set_attribute(1, DataObject::OctetString(vec![0, 0, 97, 0, 0, 1]), None, None)
             .await;
         assert!(result.is_err());
     }
@@ -598,7 +604,7 @@ mod tests {
     #[tokio::test]
     async fn test_limiter_method_disconnect() {
         let limiter = Limiter::with_default_obis(1000, 900);
-        limiter.invoke_method(1, None, None).await.unwrap();
+        limiter.invoke_method(1, None, None, None).await.unwrap();
         assert!(limiter.is_limit_active().await);
     }
 
@@ -606,21 +612,21 @@ mod tests {
     async fn test_limiter_method_reconnect() {
         let limiter = Limiter::with_default_obis(1000, 900);
         limiter.set_limit_active(true).await;
-        limiter.invoke_method(2, None, None).await.unwrap();
+        limiter.invoke_method(2, None, None, None).await.unwrap();
         assert!(!limiter.is_limit_active().await);
     }
 
     #[tokio::test]
     async fn test_limiter_invalid_attribute() {
         let limiter = Limiter::with_default_obis(1000, 900);
-        let result = limiter.get_attribute(99, None).await;
+        let result = limiter.get_attribute(99, None, None).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_limiter_invalid_method() {
         let limiter = Limiter::with_default_obis(1000, 900);
-        let result = limiter.invoke_method(99, None, None).await;
+        let result = limiter.invoke_method(99, None, None, None).await;
         assert!(result.is_err());
     }
 
